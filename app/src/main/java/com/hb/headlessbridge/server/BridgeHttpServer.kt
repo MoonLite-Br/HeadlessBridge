@@ -115,6 +115,15 @@ class BridgeHttpServer(
                 uri == "/debug/wifi" && method == Method.POST -> serveDebugWifi(rawBody)
                 uri == "/logs" -> serveLogs()
                 uri == "/stop" && method == Method.POST -> serveStop()
+                // File transfer
+                uri == "/file/upload" && method == Method.POST -> serveFileUpload(rawBody)
+                uri == "/file/list" && method == Method.GET -> serveFileList(session)
+                uri == "/file/download" && method == Method.GET -> serveFileDownload(session)
+                uri == "/file/delete" && method == Method.POST -> serveFileDelete(rawBody)
+                uri == "/file/write" && method == Method.POST -> serveFileWrite(rawBody)
+                // Input helpers
+                uri == "/paste" && method == Method.POST -> servePaste(rawBody)
+                uri == "/input" && method == Method.POST -> serveInput(rawBody)
                 else -> jsonError(404, "Unknown endpoint: $uri")
             }
         } catch (e: Exception) {
@@ -180,6 +189,16 @@ class BridgeHttpServer(
             <div class="ep"><span class="m">POST</span> /debug/wifi – {enable, port}</div>
             <div class="ep"><span class="m">GET</span>  /logs</div>
             <div class="ep"><span class="m">POST</span> /stop</div>
+            <h2>File transfer</h2>
+            <div class="ep"><span class="m">POST</span> /file/upload – {name, data_base64, path?, public?}</div>
+            <div class="ep"><span class="m">GET</span>  /file/list?path=</div>
+            <div class="ep"><span class="m">GET</span>  /file/download?path= – returns data_base64</div>
+            <div class="ep"><span class="m">POST</span> /file/write – {path, content|data_base64}</div>
+            <div class="ep"><span class="m">POST</span> /file/delete – {path}</div>
+            <h2>Input</h2>
+            <div class="ep"><span class="m">POST</span> /type – {selector, text}</div>
+            <div class="ep"><span class="m">POST</span> /input – {selector, text, clear?}</div>
+            <div class="ep"><span class="m">POST</span> /paste – {text, selector?}</div>
             </body></html>
         """.trimIndent()
         return newFixedLengthResponse(Response.Status.OK, "text/html", html)
@@ -418,6 +437,197 @@ class BridgeHttpServer(
         headlessController.requestStop()
         return jsonOk(mapOf("stopping" to true))
     }
+
+    // ───────────── File transfer ─────────────
+
+    private fun baseFilesDir(): java.io.File {
+        // Prefer external app-specific dir (no permission needed on modern Android)
+        val ext = context.getExternalFilesDir(null)
+        return ext ?: context.filesDir
+    }
+
+    private fun resolveSafePath(relative: String?): java.io.File {
+        val base = baseFilesDir()
+        if (relative.isNullOrBlank() || relative == "/" || relative == ".") {
+            return base
+        }
+        // Prevent path traversal
+        val cleaned = relative.replace("..", "").trimStart('/')
+        val target = java.io.File(base, cleaned)
+        val canonical = target.canonicalFile
+        if (!canonical.path.startsWith(base.canonicalPath)) {
+            throw SecurityException("Path traversal blocked")
+        }
+        return canonical
+    }
+
+    private fun serveFileUpload(rawBody: String): Response {
+        val json = parseJson(rawBody) ?: return jsonError(400, "Invalid JSON")
+        val name = json.get("name")?.asString ?: return jsonError(400, "Missing name")
+        val b64 = json.get("data_base64")?.asString ?: return jsonError(400, "Missing data_base64")
+        val subdir = json.get("path")?.asString // optional subdirectory
+        val toPublic = json.get("public")?.asBoolean ?: false
+
+        return try {
+            val bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
+            val dir = if (toPublic) {
+                // Try public Downloads (may fail without permission)
+                java.io.File(android.os.Environment.getExternalStoragePublicDirectory(
+                    android.os.Environment.DIRECTORY_DOWNLOADS), "HeadlessBridge").also { it.mkdirs() }
+            } else {
+                resolveSafePath(subdir).also { if (!it.isDirectory) it.mkdirs() }
+            }
+            val file = java.io.File(dir, name)
+            file.writeBytes(bytes)
+            jsonOk(mapOf(
+                "saved" to true,
+                "path" to file.absolutePath,
+                "size" to bytes.size
+            ))
+        } catch (e: Exception) {
+            jsonError(500, "Upload failed: ${e.message}")
+        }
+    }
+
+    private fun serveFileList(session: IHTTPSession): Response {
+        val pathParam = session.parameters["path"]?.firstOrNull()
+        return try {
+            val dir = resolveSafePath(pathParam)
+            if (!dir.exists()) return jsonError(404, "Path not found")
+            if (!dir.isDirectory) return jsonError(400, "Not a directory")
+            val files = dir.listFiles()?.map { f ->
+                mapOf(
+                    "name" to f.name,
+                    "path" to f.absolutePath,
+                    "size" to f.length(),
+                    "is_dir" to f.isDirectory,
+                    "modified" to f.lastModified()
+                )
+            } ?: emptyList()
+            jsonOk(mapOf("path" to dir.absolutePath, "files" to files))
+        } catch (e: Exception) {
+            jsonError(500, e.message ?: "List failed")
+        }
+    }
+
+    private fun serveFileDownload(session: IHTTPSession): Response {
+        val pathParam = session.parameters["path"]?.firstOrNull()
+            ?: return jsonError(400, "Missing path query")
+        return try {
+            val file = resolveSafePath(pathParam)
+            if (!file.exists() || !file.isFile) return jsonError(404, "File not found")
+            if (file.length() > 25 * 1024 * 1024) return jsonError(413, "File too large (>25MB)")
+            val b64 = android.util.Base64.encodeToString(file.readBytes(), android.util.Base64.NO_WRAP)
+            jsonOk(mapOf(
+                "name" to file.name,
+                "path" to file.absolutePath,
+                "size" to file.length(),
+                "data_base64" to b64
+            ))
+        } catch (e: Exception) {
+            jsonError(500, e.message ?: "Download failed")
+        }
+    }
+
+    private fun serveFileDelete(rawBody: String): Response {
+        val json = parseJson(rawBody) ?: return jsonError(400, "Invalid JSON")
+        val path = json.get("path")?.asString ?: return jsonError(400, "Missing path")
+        return try {
+            val file = resolveSafePath(path)
+            if (!file.exists()) return jsonError(404, "Not found")
+            val ok = if (file.isDirectory) file.deleteRecursively() else file.delete()
+            jsonOk(mapOf("deleted" to ok, "path" to file.absolutePath))
+        } catch (e: Exception) {
+            jsonError(500, e.message ?: "Delete failed")
+        }
+    }
+
+    private fun serveFileWrite(rawBody: String): Response {
+        // Write plain text (or base64) to a file – convenient for scripts
+        val json = parseJson(rawBody) ?: return jsonError(400, "Invalid JSON")
+        val path = json.get("path")?.asString ?: return jsonError(400, "Missing path")
+        val content = json.get("content")?.asString
+        val b64 = json.get("data_base64")?.asString
+        if (content == null && b64 == null) return jsonError(400, "Provide content or data_base64")
+        return try {
+            val file = resolveSafePath(path)
+            file.parentFile?.mkdirs()
+            if (b64 != null) {
+                file.writeBytes(android.util.Base64.decode(b64, android.util.Base64.DEFAULT))
+            } else {
+                file.writeText(content!!)
+            }
+            jsonOk(mapOf("written" to true, "path" to file.absolutePath, "size" to file.length()))
+        } catch (e: Exception) {
+            jsonError(500, e.message ?: "Write failed")
+        }
+    }
+
+    // ───────────── Input helpers ─────────────
+
+    private fun servePaste(rawBody: String): Response {
+        val engine = engineProvider() ?: return jsonError(503, "WebView not ready")
+        val json = parseJson(rawBody) ?: return jsonError(400, "Invalid JSON")
+        val text = json.get("text")?.asString ?: return jsonError(400, "Missing text")
+        val selector = json.get("selector")?.asString
+
+        // Set system clipboard
+        val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        cm.setPrimaryClip(android.content.ClipData.newPlainText("hb_paste", text))
+
+        if (selector != null) {
+            // Focus element then paste via JS execCommand or value set
+            val escaped = text.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n")
+            val js = """
+                (function(){
+                    var el = document.querySelector('$selector');
+                    if(!el) return false;
+                    el.focus();
+                    if(el.isContentEditable){
+                        document.execCommand('insertText', false, '$escaped');
+                    } else {
+                        el.value = (el.value || '') + '$escaped';
+                        el.dispatchEvent(new Event('input', {bubbles:true}));
+                    }
+                    return true;
+                })()
+            """.trimIndent()
+            val ok = engine.evaluateJs(js) == "true"
+            return jsonOk(mapOf("pasted" to ok, "via" to "selector"))
+        }
+        // Fallback: just put on clipboard – user can Ctrl+V
+        return jsonOk(mapOf("pasted" to true, "via" to "clipboard", "note" to "Text on clipboard, focus field and paste"))
+    }
+
+    private fun serveInput(rawBody: String): Response {
+        // Generic text input: prefer selector, else coordinates + type
+        val engine = engineProvider() ?: return jsonError(503, "WebView not ready")
+        val json = parseJson(rawBody) ?: return jsonError(400, "Invalid JSON")
+        val text = json.get("text")?.asString ?: return jsonError(400, "Missing text")
+        val selector = json.get("selector")?.asString
+        val clear = json.get("clear")?.asBoolean ?: true
+
+        if (selector != null) {
+            val escaped = text.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n")
+            val clearJs = if (clear) "el.value = '';" else ""
+            val js = """
+                (function(){
+                    var el = document.querySelector('$selector');
+                    if(!el) return false;
+                    el.focus();
+                    $clearJs
+                    el.value = '$escaped';
+                    el.dispatchEvent(new Event('input', {bubbles:true}));
+                    el.dispatchEvent(new Event('change', {bubbles:true}));
+                    return true;
+                })()
+            """.trimIndent()
+            val ok = engine.evaluateJs(js) == "true"
+            return jsonOk(mapOf("typed" to ok, "selector" to selector))
+        }
+        return jsonError(400, "Provide selector (recommended) or use /type")
+    }
+
 
     // ───────────── Helpers ─────────────
 

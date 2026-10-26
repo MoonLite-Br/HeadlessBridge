@@ -20,27 +20,25 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
+          log-accepted-android-sdk-licenses: false
 
-      - name: Grant execute permission for gradlew
+      - name: Accept remaining licenses (non-interactive)
         run: |
-          # Create wrapper if missing
-          if [ ! -f gradlew ]; then
-            gradle wrapper --gradle-version 8.5 || true
-          fi
-          chmod +x gradlew 2>/dev/null || true
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools" >/dev/null 2>&1 || true
 
-      - name: Build with Gradle
-        run: |
-          # Use gradle if wrapper not fully present
-          if [ -f gradlew ]; then
-            ./gradlew assembleDebug --no-daemon
-          else
-            gradle assembleDebug --no-daemon
-          fi
+      - name: Make gradlew executable
+        run: chmod +x gradlew
 
-      - name: Upload APK
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: HeadlessBridge-debug
           path: app/build/outputs/apk/debug/*.apk
-          retention-days: 14
+          retention-days: 30
+          if-no-files-found: error
