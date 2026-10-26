@@ -655,10 +655,7 @@ class BridgeHttpServer(
             401 -> Response.Status.UNAUTHORIZED
             403 -> Response.Status.FORBIDDEN
             404 -> Response.Status.NOT_FOUND
-            429 -> Response.Status.TOO_MANY_REQUESTS
-            502 -> Response.Status.BAD_GATEWAY
             503 -> Response.Status.SERVICE_UNAVAILABLE
-            504 -> Response.Status.GATEWAY_TIMEOUT
             else -> Response.Status.INTERNAL_ERROR
         }
         val map = mapOf("ok" to false, "error" to message)
