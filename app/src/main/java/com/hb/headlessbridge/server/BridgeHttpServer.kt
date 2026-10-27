@@ -21,14 +21,15 @@ import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Lightweight HTTP bridge server (NanoHTTPD).
- * All endpoints except /help, /ping, /key require X-Auth-Key header or ?key= query.
+ * Auth: Authorization: Bearer <token>
+ * Public: /help, /ping only. Bound to 127.0.0.1.
  */
 class BridgeHttpServer(
     private val context: Context,
     private val port: Int,
     private val engineProvider: () -> WebViewEngine?,
     private val headlessController: HeadlessController
-) : NanoHTTPD(port) {
+) : NanoHTTPD("127.0.0.1", port) {  // ONLY localhost – no LAN exposure
 
     interface HeadlessController {
         fun setHeadless(on: Boolean)
@@ -84,7 +85,7 @@ class BridgeHttpServer(
         val needsAuth = !isPublicEndpoint(uri)
         if (needsAuth && !isAuthorized(session, rawBody)) {
             log("AUTH FAIL $method $uri from $clientIp")
-            return jsonError(401, "Unauthorized – provide X-Auth-Key header or ?key=")
+            return jsonError(401, "Unauthorized – provide Authorization: Bearer <token>")
         }
 
         log("$method $uri from $clientIp")
@@ -93,7 +94,6 @@ class BridgeHttpServer(
             when {
                 uri == "/help" || uri.endsWith("/help") -> serveHelp()
                 uri == "/ping" -> servePing()
-                uri == "/key" -> serveKey(session)
                 uri == "/health" -> serveHealth()
                 uri == "/navigate" && (method == Method.POST || method == Method.GET) -> serveNavigate(session, rawBody)
                 uri == "/eval" && method == Method.POST -> serveEval(rawBody)
@@ -137,20 +137,42 @@ class BridgeHttpServer(
     }
 
     private fun isPublicEndpoint(uri: String): Boolean {
-        return uri == "/help" || uri == "/ping" || uri == "/key" || uri.endsWith("/help")
+        return uri == "/help" || uri == "/ping" || uri.endsWith("/help")
     }
 
     private fun isAuthorized(session: IHTTPSession, rawBody: String): Boolean {
+        // Origin check – block DNS rebinding (browser requests from other origins)
+        val origin = session.headers["origin"] ?: session.headers["Origin"]
+        if (origin != null) {
+            val okOrigin = origin == "null" ||
+                origin.startsWith("http://127.0.0.1") ||
+                origin.startsWith("http://localhost") ||
+                origin.startsWith("https://127.0.0.1") ||
+                origin.startsWith("https://localhost")
+            if (!okOrigin) {
+                log("Blocked bad Origin: $origin")
+                return false
+            }
+        }
         val expected = SecretKeyManager.getKey(context)
-        // Header
-        val headerKey = session.headers["x-auth-key"]
-            ?: session.headers["X-Auth-Key"]
+        // Authorization: Bearer <token>
+        val auth = session.headers["authorization"] ?: session.headers["Authorization"]
+        if (auth != null) {
+            val token = auth.removePrefix("Bearer").removePrefix("bearer").trim()
+            if (token == expected) return true
+        }
+        // Legacy fallback (still accept old header during migration)
+        val headerKey = session.headers["x-auth-key"] ?: session.headers["X-Auth-Key"]
         if (headerKey != null && headerKey == expected) return true
-        // Query param
-        val params = session.parameters
-        val queryKey = params["key"]?.firstOrNull()
+        val queryKey = session.parameters["key"]?.firstOrNull()
         if (queryKey != null && queryKey == expected) return true
         return false
+    }
+
+    /** True if Activity is visible OR user enabled ALLOW_BACKGROUND_DEBUG. */
+    private fun allowSensitiveOps(): Boolean {
+        if (SecretKeyManager.isAllowBackgroundDebug(context)) return true
+        return com.hb.headlessbridge.MainActivity.isInForeground
     }
 
     // ───────────── Endpoint implementations ─────────────
@@ -162,12 +184,11 @@ class BridgeHttpServer(
             h1{color:#1A73E8} code{background:#333;padding:2px 6px;border-radius:3px}
             .ep{margin:8px 0} .m{color:#4CAF50}</style></head><body>
             <h1>HeadlessBridge API</h1>
-            <p>Auth: header <code>X-Auth-Key: &lt;key&gt;</code> or query <code>?key=</code></p>
+            <p>Auth: header <code>Authorization: Bearer &lt;token&gt;</code> (token only in app UI)</p>
             <p>Port: $port · Version: 1.0.0</p>
             <div class="ep"><span class="m">GET</span>  /help – this page</div>
             <div class="ep"><span class="m">GET</span>  /ping – health ping</div>
-            <div class="ep"><span class="m">GET</span>  /key – secret key (localhost only)</div>
-            <div class="ep"><span class="m">GET</span>  /health – battery, RAM, headless status</div>
+                        <div class="ep"><span class="m">GET</span>  /health – battery, RAM, headless status</div>
             <div class="ep"><span class="m">POST</span> /navigate – {url, referer?, headers?}</div>
             <div class="ep"><span class="m">GET</span>  /navigate?url=...</div>
             <div class="ep"><span class="m">POST</span> /eval – {js}</div>
@@ -231,6 +252,7 @@ class BridgeHttpServer(
     }
 
     private fun serveNavigate(session: IHTTPSession, rawBody: String): Response {
+        if (!allowSensitiveOps()) return jsonError(403, "App must be foreground or enable ALLOW_BACKGROUND_DEBUG")
         val engine = engineProvider() ?: return jsonError(503, "WebView not ready")
         val url = when (session.method) {
             Method.GET -> session.parameters["url"]?.firstOrNull()
@@ -252,6 +274,7 @@ class BridgeHttpServer(
     }
 
     private fun serveEval(rawBody: String): Response {
+        if (!allowSensitiveOps()) return jsonError(403, "App must be foreground or enable ALLOW_BACKGROUND_DEBUG")
         val engine = engineProvider() ?: return jsonError(503, "WebView not ready")
         val json = parseJson(rawBody) ?: return jsonError(400, "Invalid JSON")
         val js = json.get("js")?.asString ?: return jsonError(400, "Missing js")

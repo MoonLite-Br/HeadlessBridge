@@ -12,6 +12,10 @@ import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import android.webkit.*
+import android.widget.Toast
+import android.net.Uri
+import android.content.pm.PackageManager
+import android.content.Intent
 import com.hb.headlessbridge.util.AdBlocker
 import com.hb.headlessbridge.util.SecretKeyManager
 import org.json.JSONObject
@@ -124,9 +128,17 @@ class WebViewEngine(
                 CookieManager.getInstance().flush()
             }
 
+            // API 24+
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                // Let WebView handle everything
-                return false
+                val url = request?.url?.toString() ?: return false
+                return handleSpecialScheme(url)
+            }
+
+            // Legacy API < 24 (still needed for some OEM WebViews)
+            @Deprecated("Deprecated in Java")
+            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                if (url.isNullOrBlank()) return false
+                return handleSpecialScheme(url)
             }
 
             override fun shouldInterceptRequest(
@@ -378,6 +390,107 @@ class WebViewEngine(
         } catch (e: InterruptedException) {
             null
         }
+    }
+
+
+    /**
+     * Handle non-http(s) schemes that cause net::ERR_UNKNOWN_URL_SCHEME:
+     * intent://, market://, upi://, whatsapp://, tg://, zalo://, tel:, mailto:, etc.
+     * @return true if we consumed the URL (WebView should NOT load it)
+     */
+    private fun handleSpecialScheme(url: String): Boolean {
+        val lower = url.lowercase()
+        val specialPrefixes = listOf(
+            "intent:", "market:", "upi:", "whatsapp:", "tg:", "telegram:",
+            "zalo:", "viber:", "line:", "fb:", "facebook:", "tel:", "mailto:",
+            "sms:", "geo:", "maps:", "spotify:", "youtube:"
+        )
+        val isSpecial = specialPrefixes.any { lower.startsWith(it) }
+        if (!isSpecial) return false  // let WebView handle http/https/file/etc.
+
+        Log.i(TAG, "Special scheme URL: ${url.take(120)}")
+        return try {
+            if (lower.startsWith("intent:")) {
+                handleIntentScheme(url)
+            } else {
+                // market://, upi://, whatsapp:// ...
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                if (intent.resolveActivity(context.packageManager) != null) {
+                    context.startActivity(intent)
+                    true
+                } else {
+                    Log.w(TAG, "No app can handle: $url")
+                    Toast.makeText(context, "Không tìm thấy ứng dụng để mở liên kết này", Toast.LENGTH_SHORT).show()
+                    true  // still consume to avoid ERR_UNKNOWN_URL_SCHEME
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "handleSpecialScheme failed: ${e.message}", e)
+            Toast.makeText(context, "Không mở được liên kết: ${e.message}", Toast.LENGTH_SHORT).show()
+            true
+        }
+    }
+
+    /** Parse intent:// URI and launch target app with safe fallbacks. */
+    private fun handleIntentScheme(url: String): Boolean {
+        return try {
+            val intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            // Prefer explicit package if present
+            val pm = context.packageManager
+            if (intent.resolveActivity(pm) != null) {
+                context.startActivity(intent)
+                Log.i(TAG, "Launched intent target: ${intent.`package` ?: intent.component}")
+                return true
+            }
+            // Fallback 1: browser_fallback_url extra (common in Chrome intent links)
+            val fallback = intent.getStringExtra("browser_fallback_url")
+            if (!fallback.isNullOrBlank()) {
+                Log.i(TAG, "Using browser_fallback_url: $fallback")
+                mainHandler.post { webView.loadUrl(fallback) }
+                return true
+            }
+            // Fallback 2: try https scheme from Intent data / extras
+            val fallbackScheme = intent.scheme
+            if (fallbackScheme == null || fallbackScheme == "https" || fallbackScheme == "http") {
+                // already tried resolve
+            }
+            // Fallback 3: open in default browser if we can extract a web URL
+            val webUrl = extractHttpsFromIntent(url)
+            if (webUrl != null) {
+                Log.i(TAG, "Extracted https fallback: $webUrl")
+                mainHandler.post { webView.loadUrl(webUrl) }
+                return true
+            }
+            Toast.makeText(
+                context,
+                "Không có ứng dụng phù hợp. Cài app đích hoặc mở bằng trình duyệt.",
+                Toast.LENGTH_LONG
+            ).show()
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Intent.parseUri failed: ${e.message}", e)
+            Toast.makeText(context, "Lỗi mở intent: ${e.message}", Toast.LENGTH_SHORT).show()
+            true
+        }
+    }
+
+    /** Try to pull an https URL out of an intent:// string for fallback. */
+    private fun extractHttpsFromIntent(intentUrl: String): String? {
+        // Common pattern: intent://host/path#Intent;scheme=https;...
+        val schemeMatch = Regex("scheme=([^;]+)").find(intentUrl)
+        val hostMatch = Regex("intent://([^#]+)").find(intentUrl)
+        if (schemeMatch != null && hostMatch != null) {
+            val scheme = schemeMatch.groupValues[1]
+            if (scheme == "https" || scheme == "http") {
+                return "$scheme://${hostMatch.groupValues[1]}"
+            }
+        }
+        // browser_fallback_url already handled above
+        return null
     }
 
     // ───────────────────── Lifecycle ─────────────────────

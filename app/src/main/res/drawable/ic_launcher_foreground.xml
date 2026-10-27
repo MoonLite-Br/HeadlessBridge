@@ -2,12 +2,23 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-    <path
-        android:fillColor="#1A73E8"
-        android:pathData="M30,30h48v48h-48z"/>
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M40,42h28v6h-28zM40,54h20v6h-20zM40,66h24v6h-24z"/>
+    android:viewportWidth="1849"
+    android:viewportHeight="1849">
+    <!-- Scaled logo centered in 108dp adaptive icon safe zone -->
+    <group
+        android:translateX="0"
+        android:translateY="0">
+        <path
+            android:fillColor="#8d89f7"
+            android:pathData="M1076,1H731l1112,1115V770c0,-458 -310,-769 -768,-769z"/>
+        <path
+            android:fillColor="#706cf5"
+            android:pathData="M771,1849h305c446,0 752,-296 768,-734L731,1C296,19 3,315 3,759v332c0,458 310,759 768,759z"/>
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M1191,1331a482,482 0,0 1,-700 -189c-40,-20 -77,-43 -110,-65a563,563 0,0 0,938 250c-40,4 -83,5 -128,3zM451,1027c-33,-20 -63,-40 -89,-61c-97,-77 -147,-158 -128,-226c18,-69 102,-113 224,-130a563,563 0,0 1,1028 280c97,77 147,157 128,226c-18,68 -102,112 -225,130c-33,4 -70,7 -108,8c-124,2 -274,-18 -430,-60a1598,1598 0,0 1,-400 -167zM1344,1168a480,480 0,0 0,64 -239v-3a484,484 0,1 0,-968 0a1513,1513 0,0 0,430 182c181,50 351,70 474,60zM1440,1152c49,-14 80,-37 89,-67c8,-31 -8,-67 -44,-105l-1,7a555,555 0,0 1,-44 165zM413,691l4,-9c-57,14 -94,38 -103,72c-9,33 10,71 51,112c7,-62 23,-120 48,-175zM1550,355l28,28l-124,124l-28,-28l124,-125z"/>
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M1609,413l-23,22l-88,-88l23,-22l88,88zM1438,243l73,72l-23,23l-44,-44l-30,30l39,37l-23,22l-38,-38l-27,26l44,45l-22,23l-73,-73l124,-124zM1638,443l30,28l-89,161l-28,-28l22,-33l-32,-32l-32,20l-28,-27l159,-90zM1630,481l-64,41l23,23l40,-64zM1342,147l46,46a48,48 0,0 1,0 67a48,48 0,0 1,-44 13a46,46 0,0 1,-76 48l-50,-49l124,-125zM1283,291c9,10 24,10 33,0a23,23 0,0 0,0 -34l-13,-13l-33,34l12,13zM1332,237c8,8 22,8 30,0c9,-9 9,-22 0,-30l-10,-11l-30,30l10,10z"/>
+    </group>
 </vector>

@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.os.Build
 import android.util.Log
 import com.hb.headlessbridge.util.SecretKeyManager
+import com.hb.headlessbridge.worker.CacheCleanupWorker
 
 class HeadlessBridgeApp : Application() {
 
@@ -20,7 +21,8 @@ class HeadlessBridgeApp : Application() {
         instance = this
         createNotificationChannel()
         // Ensure secret key exists early
-        SecretKeyManager.getOrCreateKey(this)
+        SecretKeyManager.getOrCreateKey(this, forceRotate = true) // invalidate previous process token
+        CacheCleanupWorker.schedule(this)
         Log.i(TAG, "Application started")
     }
 

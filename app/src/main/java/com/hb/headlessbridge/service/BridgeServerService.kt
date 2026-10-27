@@ -4,6 +4,9 @@ import android.app.Notification
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
+import android.content.pm.PackageManager
+import android.Manifest
+import androidx.core.content.ContextCompat
 import android.content.Intent
 import android.os.Binder
 import android.os.Build
@@ -87,6 +90,15 @@ class BridgeServerService : Service(), BridgeHttpServer.HeadlessController {
                 return START_NOT_STICKY
             }
             else -> {
+                // API 33+: need POST_NOTIFICATIONS before startForeground with visible notification
+                if (Build.VERSION.SDK_INT >= 33) {
+                    val granted = ContextCompat.checkSelfPermission(
+                        this, Manifest.permission.POST_NOTIFICATIONS
+                    ) == PackageManager.PERMISSION_GRANTED
+                    if (!granted) {
+                        Log.w(TAG, "POST_NOTIFICATIONS not granted – still starting FGS (may be silent)")
+                    }
+                }
                 startForeground(NOTIFICATION_ID, buildNotification())
                 startServer()
             }
@@ -106,7 +118,7 @@ class BridgeServerService : Service(), BridgeHttpServer.HeadlessController {
             )
             server?.start(5000, false)
             Log.i(TAG, "HTTP server started on port $port")
-            BridgeHttpServer.log("Server listening on 0.0.0.0:$port")
+            BridgeHttpServer.log("Server listening on 127.0.0.1:$port")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start server", e)
         }

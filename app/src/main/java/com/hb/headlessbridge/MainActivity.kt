@@ -28,9 +28,17 @@ import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.switchmaterial.SwitchMaterial
 import com.hb.headlessbridge.service.BridgeServerService
 import com.hb.headlessbridge.util.SecretKeyManager
+import com.hb.headlessbridge.service.OverlayService
+import com.hb.headlessbridge.util.PermissionHelper
+import com.hb.headlessbridge.util.CacheCleaner
 import com.hb.headlessbridge.webview.WebViewEngine
 
 class MainActivity : AppCompatActivity() {
+
+    companion object {
+        /** Used by BridgeHttpServer to gate /eval and /navigate. */
+        @Volatile var isInForeground: Boolean = false
+    }
 
     private lateinit var webView: WebView
     private lateinit var headlessOverlay: LinearLayout
@@ -40,6 +48,7 @@ class MainActivity : AppCompatActivity() {
 
     private var engine: WebViewEngine? = null
     private var settingsDialog: BottomSheetDialog? = null
+    private lateinit var permissionHelper: PermissionHelper
 
     private val headlessReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -53,6 +62,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_main)
+        permissionHelper = PermissionHelper(this)
 
         // Immersive-ish
         WindowInsetsControllerCompat(window, window.decorView).let { c ->
@@ -141,33 +151,98 @@ class MainActivity : AppCompatActivity() {
         val rowForceGc = view.findViewById<View>(R.id.row_force_gc)
         val rowIgnoreBattery = view.findViewById<View>(R.id.row_ignore_battery)
         val tvUa = view.findViewById<TextView>(R.id.tv_ua_info)
+        val tvCache = view.findViewById<TextView>(R.id.tv_cache_size)
+        val rowClearCache = view.findViewById<View>(R.id.row_clear_cache)
+        val switchBgRun = view.findViewById<SwitchMaterial>(R.id.switch_bg_run)
+        val switchBgDebug = view.findViewById<SwitchMaterial>(R.id.switch_bg_debug)
+        val switchOverlay = view.findViewById<SwitchMaterial>(R.id.switch_overlay)
+        val rowPermissions = view.findViewById<View>(R.id.row_permissions)
+        val rowDeveloper = view.findViewById<View>(R.id.row_developer)
 
         // Init values
         switchAntiPopup.isChecked = SecretKeyManager.isAntiPopup(this)
         switchDestroyAds.isChecked = SecretKeyManager.isDestroyAds(this)
         switchHeadless.isChecked = SecretKeyManager.isHeadless(this)
+        switchBgRun.isChecked = SecretKeyManager.isBackgroundRun(this)
+        switchBgDebug.isChecked = SecretKeyManager.isAllowBackgroundDebug(this)
+        switchOverlay.isChecked = SecretKeyManager.isOverlay(this) && OverlayService.canDraw(this)
         etPort.setText(SecretKeyManager.getPort(this).toString())
-        tvUa.text = "UA: ${engine?.getUserAgent()?.take(60) ?: "…"}…"
+        val report = CacheCleaner.measure(this)
+        tvCache.text = "🧹  Dọn cache (${report.mb(report.totalBytes)} MB)"
+        tvUa.text = "UA: ${engine?.getUserAgent()?.take(60) ?: "…"}… | Token: ${SecretKeyManager.maskedKey(SecretKeyManager.getKey(this))}"
 
         rowCopyKey.setOnClickListener {
             val key = SecretKeyManager.getKey(this)
             val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
-            cm.setPrimaryClip(ClipData.newPlainText("hb_key", key))
-            Toast.makeText(this, "Key copied (${SecretKeyManager.maskedKey(key)})", Toast.LENGTH_SHORT).show()
+            cm.setPrimaryClip(ClipData.newPlainText("hb_token", key))
+            Toast.makeText(this, "Token copied (${SecretKeyManager.maskedKey(key)}) — dùng: Authorization: Bearer <token>", Toast.LENGTH_LONG).show()
         }
 
         switchAntiPopup.setOnCheckedChangeListener { _, isChecked ->
             SecretKeyManager.setAntiPopup(this, isChecked)
             engine?.antiPopupEnabled = isChecked
         }
-
         switchDestroyAds.setOnCheckedChangeListener { _, isChecked ->
             SecretKeyManager.setDestroyAds(this, isChecked)
             engine?.destroyAdsEnabled = isChecked
         }
-
         switchHeadless.setOnCheckedChangeListener { _, isChecked ->
             setHeadlessMode(isChecked)
+        }
+
+        switchBgRun.setOnCheckedChangeListener { _, isChecked ->
+            SecretKeyManager.setBackgroundRun(this, isChecked)
+            if (isChecked) {
+                AlertDialog.Builder(this)
+                    .setTitle("Chạy nền")
+                    .setMessage("Foreground Service sẽ giữ app sống và tốn pin. Chỉ bật khi cần automation liên tục.")
+                    .setPositiveButton("OK") { _, _ -> BridgeServerService.start(this) }
+                    .setNegativeButton("Huỷ") { _, _ ->
+                        switchBgRun.isChecked = false
+                        SecretKeyManager.setBackgroundRun(this, false)
+                    }
+                    .show()
+            } else {
+                BridgeServerService.stop(this)
+            }
+        }
+
+        switchBgDebug.setOnCheckedChangeListener { _, isChecked ->
+            SecretKeyManager.setAllowBackgroundDebug(this, isChecked)
+            Toast.makeText(this, if (isChecked) " /eval & /navigate cho phép khi background" else "Chỉ foreground", Toast.LENGTH_SHORT).show()
+        }
+
+        switchOverlay.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                if (!OverlayService.canDraw(this)) {
+                    OverlayService.requestPermission(this)
+                    switchOverlay.isChecked = false
+                    return@setOnCheckedChangeListener
+                }
+                SecretKeyManager.setOverlay(this, true)
+                OverlayService.show(this)
+            } else {
+                SecretKeyManager.setOverlay(this, false)
+                OverlayService.hide(this)
+            }
+        }
+
+        rowClearCache.setOnClickListener {
+            val after = CacheCleaner.clear(this, webView)
+            tvCache.text = "🧹  Dọn cache (${after.mb(after.totalBytes)} MB)"
+            Toast.makeText(this, "Đã dọn cache → ${after.mb(after.totalBytes)} MB", Toast.LENGTH_SHORT).show()
+        }
+
+        rowPermissions.setOnClickListener {
+            permissionHelper.requestAll { result ->
+                val granted = result.values.count { it }
+                Toast.makeText(this, "Quyền: $granted/${result.size} granted", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        rowDeveloper.setOnClickListener {
+            dialog.dismiss()
+            startActivity(Intent(this, DeveloperActivity::class.java))
         }
 
         rowWireless.setOnClickListener {
@@ -274,14 +349,21 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        isInForeground = true
         engine?.onResume()
-        // Ensure service running
-        if (!BridgeServerService.isRunning()) {
+        // Ensure service running only if user enabled background run
+        if (SecretKeyManager.isBackgroundRun(this) && !BridgeServerService.isRunning()) {
             BridgeServerService.start(this)
+        }
+        // Hide overlay if permission revoked
+        if (SecretKeyManager.isOverlay(this) && !OverlayService.canDraw(this)) {
+            OverlayService.hide(this)
+            SecretKeyManager.setOverlay(this, false)
         }
     }
 
     override fun onPause() {
+        isInForeground = false
         engine?.onPause()
         super.onPause()
     }

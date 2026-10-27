@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId = "com.hb.headlessbridge"
-        minSdk = 26
+        minSdk = 24
         targetSdk = 34
         versionCode = 1
         versionName = "1.0.0"
@@ -60,6 +60,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.lifecycle:lifecycle-service:2.7.0")
     implementation("androidx.work:work-runtime-ktx:2.9.0")
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
     // Networking
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

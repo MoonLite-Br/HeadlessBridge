@@ -216,6 +216,142 @@
             android:textSize="15sp" />
     </LinearLayout>
 
+
+    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider" />
+
+    <!-- Clear cache -->
+    <LinearLayout
+        android:id="@+id/row_clear_cache"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="?attr/selectableItemBackground"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp">
+        <TextView
+            android:id="@+id/tv_cache_size"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="🧹  Dọn cache"
+            android:textColor="@color/white"
+            android:textSize="15sp" />
+    </LinearLayout>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider" />
+
+    <!-- Background run -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp">
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="🌙  Chạy nền (FGS)"
+            android:textColor="@color/white"
+            android:textSize="15sp" />
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/switch_bg_run"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+    </LinearLayout>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider" />
+
+    <!-- Allow background debug -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp">
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="🔓  ALLOW_BACKGROUND_DEBUG"
+            android:textColor="@color/white"
+            android:textSize="15sp" />
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/switch_bg_debug"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+    </LinearLayout>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider" />
+
+    <!-- Overlay -->
+    <LinearLayout
+        android:id="@+id/row_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="?attr/selectableItemBackground"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp">
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="📌  Overlay trạng thái"
+            android:textColor="@color/white"
+            android:textSize="15sp" />
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/switch_overlay"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+    </LinearLayout>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider" />
+
+    <!-- Permissions -->
+    <LinearLayout
+        android:id="@+id/row_permissions"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="?attr/selectableItemBackground"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp">
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="🔐  Xin quyền Mic/Ảnh/Thông báo"
+            android:textColor="@color/white"
+            android:textSize="15sp" />
+    </LinearLayout>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider" />
+
+    <!-- Developer -->
+    <LinearLayout
+        android:id="@+id/row_developer"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="?attr/selectableItemBackground"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp">
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="🛠  Developer / ADB"
+            android:textColor="@color/white"
+            android:textSize="15sp" />
+    </LinearLayout>
+
     <TextView
         android:id="@+id/tv_ua_info"
         android:layout_width="match_parent"
