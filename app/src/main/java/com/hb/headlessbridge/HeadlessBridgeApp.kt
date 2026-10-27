@@ -30,8 +30,11 @@ class HeadlessBridgeApp : Application() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val nm = getSystemService(NotificationManager::class.java)
             val channelId = getString(R.string.notification_channel_id)
+            // Already correct → leave it (and the user's own channel settings) alone.
+            val existing = nm.getNotificationChannel(channelId)
+            if (existing != null && existing.importance == NotificationManager.IMPORTANCE_DEFAULT) return
             // Xóa channel cũ (IMPORTANCE_LOW) nếu có — Android không cho đổi importance tại chỗ
-            nm.deleteNotificationChannel(channelId)
+            if (existing != null) nm.deleteNotificationChannel(channelId)
             val channel = NotificationChannel(
                 channelId,
                 getString(R.string.notification_channel_name),

@@ -117,13 +117,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun applyHeadlessUi(on: Boolean) {
-        if (on) {
-            webView.visibility = View.GONE
-            headlessOverlay.visibility = View.VISIBLE
-        } else {
-            headlessOverlay.visibility = View.GONE
-            webView.visibility = View.VISIBLE
-        }
+        // Keep the WebView VISIBLE and just cover it with the opaque overlay (it is drawn on
+        // top in activity_main.xml). A GONE WebView has size 0 and isn't rendered, which made
+        // /screenshot return a blank 1x1 image and throttled JS in headless mode.
+        webView.visibility = View.VISIBLE
+        headlessOverlay.visibility = if (on) View.VISIBLE else View.GONE
         SecretKeyManager.setHeadless(this, on)
     }
 
@@ -309,26 +307,17 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(this, "Need both code and port", Toast.LENGTH_SHORT).show()
                     return@setPositiveButton
                 }
-                val cmd = "adb pair 127.0.0.1:$pairPort $code"
-                // Try Runtime.exec (usually fails without shell/root)
-                try {
-                    val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", cmd))
-                    val exit = process.waitFor()
-                    if (exit == 0) {
-                        Toast.makeText(this, "Pair command executed", Toast.LENGTH_SHORT).show()
-                    } else {
-                        // Fallback: copy command
-                        val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
-                        cm.setPrimaryClip(ClipData.newPlainText("adb_pair", cmd))
-                        Toast.makeText(this, "Command copied – paste in Termux", Toast.LENGTH_LONG).show()
-                    }
-                } catch (e: Exception) {
-                    val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
-                    cm.setPrimaryClip(ClipData.newPlainText("adb_pair", cmd))
-                    Toast.makeText(this, "No shell access. Command copied to clipboard:\n$cmd", Toast.LENGTH_LONG).show()
+                // The app can't run adb itself (no adb binary / shell on a normal phone), and the
+                // old Runtime.exec("sh -c ...") with raw user text blocked the UI thread and was a
+                // command-injection hole. Validate and just hand the command to Termux.
+                if (pairPort.toIntOrNull() == null || !code.all { it.isLetterOrDigit() }) {
+                    Toast.makeText(this, "Code / port không hợp lệ", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
                 }
-                // Always enable WebView debugging
-                WebView.setWebContentsDebuggingEnabled(true)
+                val cmd = "adb pair 127.0.0.1:$pairPort $code"
+                val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("adb_pair", cmd))
+                Toast.makeText(this, "Command copied – paste in Termux:\n$cmd", Toast.LENGTH_LONG).show()
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -392,7 +381,12 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         isInForeground = false
-        engine?.onPause()
+        // WebView.onPause() freezes JS timers/rendering. While the bridge service is running
+        // the page must keep working (Termux is in front, this app is "paused") – that was
+        // the real reason /eval & /navigate only worked with the app on screen.
+        if (!BridgeServerService.isRunning()) {
+            engine?.onPause()
+        }
         super.onPause()
     }
 
@@ -400,8 +394,17 @@ class MainActivity : AppCompatActivity() {
         try {
             unregisterReceiver(headlessReceiver)
         } catch (_: Exception) {}
-        // Do NOT destroy engine / WebView here – service may still need it.
-        // Only clear if activity is finishing permanently and we want to.
+        // This Activity's WebView dies with it. Unregister it so the service stops handing
+        // out a dead/leaked view and builds its own detached engine on the next request
+        // (setEngine destroys + detaches the old one; cookies live in CookieManager and survive).
+        engine?.let { mine ->
+            if (BridgeServerService.getEngine() === mine) {
+                BridgeServerService.setEngine(null)
+            } else {
+                mine.destroy()
+            }
+        }
+        engine = null
         super.onDestroy()
     }
 

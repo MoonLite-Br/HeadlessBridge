@@ -44,8 +44,16 @@ class BridgeServerService : Service(), BridgeHttpServer.HeadlessController {
         private val headlessState = AtomicReference(false)
         private val serviceInstance = AtomicReference<BridgeServerService?>(null)
 
+        /**
+         * Swap the shared engine. The previous one is destroyed (unless it is the same
+         * instance), otherwise a service-owned WebView leaks every time the Activity
+         * registers its own, and MainActivity can null it out on destroy.
+         */
         fun setEngine(engine: WebViewEngine?) {
-            engineRef.set(engine)
+            val old = engineRef.getAndSet(engine)
+            if (old != null && old !== engine) {
+                try { old.destroy() } catch (_: Exception) {}
+            }
         }
 
         fun getEngine(): WebViewEngine? = engineRef.get()
@@ -200,7 +208,11 @@ class BridgeServerService : Service(), BridgeHttpServer.HeadlessController {
             Log.i(TAG, "HTTP server started on port $port")
             BridgeHttpServer.log("Server listening on 127.0.0.1:$port")
         } catch (e: Exception) {
+            // Typically "Address already in use". Reset so a later start can retry,
+            // and leave a trace in /logs instead of failing silently.
+            server = null
             Log.e(TAG, "Failed to start server", e)
+            BridgeHttpServer.log("Server FAILED to start on port $port: ${e.message}")
         }
     }
 
@@ -253,7 +265,9 @@ class BridgeServerService : Service(), BridgeHttpServer.HeadlessController {
         })
     }
 
-    override fun isHeadless(): Boolean = headlessState.get()
+    // The preference is the single source of truth: the UI toggle, the API and a service
+    // restart all write/read it. (The static headlessState used to drift out of sync.)
+    override fun isHeadless(): Boolean = SecretKeyManager.isHeadless(this)
 
     override fun setAntiPopup(on: Boolean) {
         SecretKeyManager.setAntiPopup(this, on)
@@ -277,7 +291,7 @@ class BridgeServerService : Service(), BridgeHttpServer.HeadlessController {
         val eng = engineRef.get()
         val ready = eng != null && !eng.isDestroyed() && eng.isUsable()
         return mapOf(
-            "headless" to headlessState.get(),
+            "headless" to SecretKeyManager.isHeadless(this),
             "foreground" to true,
             "port" to SecretKeyManager.getPort(this),
             "battery" to batteryPct,
@@ -290,9 +304,13 @@ class BridgeServerService : Service(), BridgeHttpServer.HeadlessController {
     }
 
     override fun requestStop() {
-        stopServer()
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        // Called from inside an HTTP request: stopping the server immediately would kill
+        // the very connection that is about to receive {"stopping":true}. Give it a moment.
+        Handler(Looper.getMainLooper()).postDelayed({
+            stopServer()
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }, 300)
     }
 
     /**

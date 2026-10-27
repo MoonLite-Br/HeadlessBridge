@@ -68,15 +68,15 @@ object CacheCleaner {
             Log.w(TAG, "webView.clearCache: ${e.message}")
         }
 
-        // 2) Delete known heavy subdirs under app_webview (keep cookies if possible)
+        // 2) Delete known heavy CACHE subdirs under app_webview.
+        // Local Storage / IndexedDB / Session Storage / WebStorage / databases are deliberately
+        // NOT wiped: they hold the login state of sites (x.com, Google …), so clearing them
+        // silently logged the automation out every time the 30MB threshold was hit.
         val dataDir = context.applicationInfo.dataDir?.let { File(it) }
         val appWebView = dataDir?.let { File(it, "app_webview") }
         if (appWebView != null && appWebView.exists()) {
-            // Common heavy dirs: Cache, GPUCache, Code Cache, Service Worker, Blob Storage
             val toWipe = listOf(
-                "Cache", "GPUCache", "Code Cache", "Service Worker",
-                "blob_storage", "Session Storage", "Local Storage",
-                "databases", "IndexedDB", "WebStorage"
+                "Cache", "GPUCache", "Code Cache", "Service Worker", "blob_storage"
             )
             for (name in toWipe) {
                 val sub = File(appWebView, name)

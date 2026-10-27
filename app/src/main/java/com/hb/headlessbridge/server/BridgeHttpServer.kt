@@ -46,6 +46,7 @@ class BridgeHttpServer(
         private val startTime = AtomicLong(SystemClock.elapsedRealtime())
         private val logBuffer = ConcurrentLinkedDeque<String>()
         private const val MAX_LOG_LINES = 200
+        private const val MAX_REQ_PER_MIN = 600
 
         fun log(msg: String) {
             val line = "${System.currentTimeMillis()} $msg"
@@ -61,7 +62,9 @@ class BridgeHttpServer(
         .followRedirects(true)
         .build()
 
-    private val rateLimiter = RateLimiter(60) // 60 req / min / IP
+    // Everything arrives from 127.0.0.1, so this is effectively a global limit.
+    // 60/min was far too low for real automation (click/type/eval loops).
+    private val rateLimiter = RateLimiter(MAX_REQ_PER_MIN)
 
     override fun serve(session: IHTTPSession): Response {
         val uri = session.uri ?: "/"
@@ -71,7 +74,14 @@ class BridgeHttpServer(
 
         // Rate limit
         if (!rateLimiter.allow(clientIp)) {
-            return jsonError(429, "Rate limit exceeded (60 req/min)")
+            return jsonError(429, "Rate limit exceeded ($MAX_REQ_PER_MIN req/min)")
+        }
+
+        // Auth first – don't parse (and spool to disk) bodies from unauthenticated callers
+        val needsAuth = !isPublicEndpoint(uri)
+        if (needsAuth && !isAuthorized(session)) {
+            log("AUTH FAIL $method $uri from $clientIp")
+            return jsonError(401, "Unauthorized – provide Authorization: Bearer <token>")
         }
 
         // Parse body once
@@ -80,13 +90,6 @@ class BridgeHttpServer(
             session.parseBody(bodyMap)
         } catch (_: Exception) {}
         val rawBody = bodyMap["postData"] ?: ""
-
-        // Auth check
-        val needsAuth = !isPublicEndpoint(uri)
-        if (needsAuth && !isAuthorized(session, rawBody)) {
-            log("AUTH FAIL $method $uri from $clientIp")
-            return jsonError(401, "Unauthorized – provide Authorization: Bearer <token>")
-        }
 
         log("$method $uri from $clientIp")
 
@@ -140,7 +143,7 @@ class BridgeHttpServer(
         return uri == "/help" || uri == "/ping" || uri.endsWith("/help")
     }
 
-    private fun isAuthorized(session: IHTTPSession, rawBody: String): Boolean {
+    private fun isAuthorized(session: IHTTPSession): Boolean {
         // Origin check – block DNS rebinding
         val origin = session.headers["origin"] ?: session.headers["Origin"]
         if (origin != null) {
@@ -263,16 +266,6 @@ class BridgeHttpServer(
             "port" to port
         )
         return jsonOk(data)
-    }
-
-    private fun serveKey(session: IHTTPSession): Response {
-        // Only allow from localhost
-        val ip = session.remoteIpAddress
-        if (ip != "127.0.0.1" && ip != "::1" && ip != "localhost") {
-            return jsonError(403, " /key only available from localhost")
-        }
-        val key = SecretKeyManager.getKey(context)
-        return jsonOk(mapOf("key" to key, "port" to port))
     }
 
     private fun serveHealth(): Response {
@@ -431,7 +424,7 @@ class BridgeHttpServer(
         val selector = json.get("selector")?.asString ?: return jsonError(400, "Missing selector")
         val text = json.get("text")?.asString ?: ""
         val ok = engine.typeText(selector, text)
-        return jsonOk(mapOf("typed" to ok))
+        return jsonOk(mapOf("typed" to ok, "selector" to selector))
     }
 
     private fun serveScroll(rawBody: String): Response {
@@ -503,11 +496,14 @@ class BridgeHttpServer(
         if (relative.isNullOrBlank() || relative == "/" || relative == ".") {
             return base
         }
-        // Prevent path traversal
-        val cleaned = relative.replace("..", "").trimStart('/')
-        val target = java.io.File(base, cleaned)
+        // Prevent path traversal: resolve, then require the result to stay inside base.
+        // (Must compare with a trailing separator – "/files-evil" also startsWith "/files".)
+        val target = java.io.File(base, relative.trimStart('/'))
         val canonical = target.canonicalFile
-        if (!canonical.path.startsWith(base.canonicalPath)) {
+        val baseCanonical = base.canonicalFile
+        val inside = canonical == baseCanonical ||
+            canonical.path.startsWith(baseCanonical.path + java.io.File.separator)
+        if (!inside) {
             throw SecurityException("Path traversal blocked")
         }
         return canonical
@@ -515,7 +511,11 @@ class BridgeHttpServer(
 
     private fun serveFileUpload(rawBody: String): Response {
         val json = parseJson(rawBody) ?: return jsonError(400, "Invalid JSON")
-        val name = json.get("name")?.asString ?: return jsonError(400, "Missing name")
+        val rawName = json.get("name")?.asString ?: return jsonError(400, "Missing name")
+        // Keep only the last path component – "name" used to be written as-is, so
+        // "../../x" escaped the upload directory.
+        val name = java.io.File(rawName).name
+        if (name.isBlank() || name == "." || name == "..") return jsonError(400, "Invalid name")
         val b64 = json.get("data_base64")?.asString ?: return jsonError(400, "Missing data_base64")
         val subdir = json.get("path")?.asString // optional subdirectory
         val toPublic = json.get("public")?.asBoolean ?: false
@@ -628,23 +628,8 @@ class BridgeHttpServer(
         cm.setPrimaryClip(android.content.ClipData.newPlainText("hb_paste", text))
 
         if (selector != null) {
-            // Focus element then paste via JS execCommand or value set
-            val escaped = text.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n")
-            val js = """
-                (function(){
-                    var el = document.querySelector('$selector');
-                    if(!el) return false;
-                    el.focus();
-                    if(el.isContentEditable){
-                        document.execCommand('insertText', false, '$escaped');
-                    } else {
-                        el.value = (el.value || '') + '$escaped';
-                        el.dispatchEvent(new Event('input', {bubbles:true}));
-                    }
-                    return true;
-                })()
-            """.trimIndent()
-            val ok = engine.evaluateJs(js) == "true"
+            // Append to the focused field (selector / text are escaped inside the engine)
+            val ok = engine.typeText(selector, text, clear = false, append = true)
             return jsonOk(mapOf("pasted" to ok, "via" to "selector"))
         }
         // Fallback: just put on clipboard – user can Ctrl+V
@@ -660,21 +645,8 @@ class BridgeHttpServer(
         val clear = json.get("clear")?.asBoolean ?: true
 
         if (selector != null) {
-            val escaped = text.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n")
-            val clearJs = if (clear) "el.value = '';" else ""
-            val js = """
-                (function(){
-                    var el = document.querySelector('$selector');
-                    if(!el) return false;
-                    el.focus();
-                    $clearJs
-                    el.value = '$escaped';
-                    el.dispatchEvent(new Event('input', {bubbles:true}));
-                    el.dispatchEvent(new Event('change', {bubbles:true}));
-                    return true;
-                })()
-            """.trimIndent()
-            val ok = engine.evaluateJs(js) == "true"
+            // clear=true → replace the content, clear=false → append
+            val ok = engine.typeText(selector, text, clear = clear, append = !clear)
             return jsonOk(mapOf("typed" to ok, "selector" to selector))
         }
         return jsonError(400, "Provide selector (recommended) or use /type")
@@ -701,13 +673,24 @@ class BridgeHttpServer(
         )
     }
 
+    /** NanoHTTPD 2.3.1's Status enum lacks 413/429/502/504 → they all became 500. */
+    private class HttpStatus(private val code: Int, private val text: String) : NanoHTTPD.Response.IStatus {
+        override fun getRequestStatus(): Int = code
+        override fun getDescription(): String = "$code $text"
+    }
+
     private fun jsonError(code: Int, message: String): Response {
-        val status = when (code) {
+        val status: NanoHTTPD.Response.IStatus = when (code) {
             400 -> Response.Status.BAD_REQUEST
             401 -> Response.Status.UNAUTHORIZED
             403 -> Response.Status.FORBIDDEN
             404 -> Response.Status.NOT_FOUND
+            413 -> HttpStatus(413, "Payload Too Large")
+            429 -> HttpStatus(429, "Too Many Requests")
+            500 -> Response.Status.INTERNAL_ERROR
+            502 -> HttpStatus(502, "Bad Gateway")
             503 -> Response.Status.SERVICE_UNAVAILABLE
+            504 -> HttpStatus(504, "Gateway Timeout")
             else -> Response.Status.INTERNAL_ERROR
         }
         val map = mapOf("ok" to false, "error" to message)

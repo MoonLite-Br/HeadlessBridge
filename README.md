@@ -3,7 +3,7 @@
 **Android headless WebView + local HTTP automation bridge**
 
 Package: `com.hb.headlessbridge`  
-Min SDK 26 · Target SDK 34 · Kotlin · Jetpack
+Min SDK 24 · Target SDK 34 · Kotlin · Jetpack
 
 ---
 
@@ -11,8 +11,8 @@ Min SDK 26 · Target SDK 34 · Kotlin · Jetpack
 
 - Full-screen WebView that looks like real Chromium (UA stripped of `WV`/`wv`)
 - Local HTTP server (default port **8765**) controllable from Termux / same LAN
-- Secret key authentication (64-hex, generated once, stored in private SharedPreferences)
-- Headless mode: hides WebView, shows grey screen, runs as Foreground Service
+- Secret key authentication (64-hex, generated once, stored in EncryptedSharedPreferences)
+- Headless mode: covers the WebView with a grey screen, runs as Foreground Service
 - Ad blocking + anti-popup
 - Cookies, JS eval, navigate, click, type, scroll, screenshot, curl proxy
 - Wireless debugging helper + WebView DevTools support
@@ -126,12 +126,18 @@ adb shell am start -n com.hb.headlessbridge/.MainActivity
 
 Base URL: `http://127.0.0.1:8765`
 
-### 1. Get the key (localhost only, no auth)
+### 1. Get the key
+
+There is no `/key` endpoint any more (it handed the secret to any local app). Copy the token
+from the app: **gear icon → Copy secret key**, then in Termux:
 
 ```bash
-curl http://127.0.0.1:8765/key
-# → {"ok":true,"data":{"key":"a1b2c3...","port":8765}}
+KEY=<paste the 64-hex token>
+# Preferred header (X-Auth-Key: $KEY and ?key=$KEY also work):
+curl -H "Authorization: Bearer $KEY" http://127.0.0.1:8765/health
 ```
+
+The token is generated once and stays the same until you rotate it.
 
 ### 2. Help page
 
@@ -148,8 +154,7 @@ curl http://127.0.0.1:8765/ping
 ### 4. Navigate (requires key)
 
 ```bash
-KEY=$(curl -s http://127.0.0.1:8765/key | jq -r .data.key)
-
+# $KEY = token copied from the app (see step 1)
 curl -X POST -H "X-Auth-Key: $KEY" \
   -H "Content-Type: application/json" \
   -d '{"url":"https://x.com"}' \
@@ -238,10 +243,15 @@ adb connect 127.0.0.1:<debugPort>
 
 ## Security notes
 
-- Secret key is 64 hex characters, generated with `SecureRandom`, stored only in `MODE_PRIVATE` SharedPreferences.
-- Every endpoint except `/help`, `/ping`, `/key` requires `X-Auth-Key` header or `?key=` query.
-- `/key` is restricted to localhost (`127.0.0.1` / `::1`).
-- Rate limit: 60 requests per minute per IP.
+- Secret key is 64 hex characters, generated with `SecureRandom`, stored in `EncryptedSharedPreferences`.
+- The server binds to `127.0.0.1` only. Every endpoint except `/help` and `/ping` requires
+  `Authorization: Bearer <key>` (or `X-Auth-Key` header / `?key=` query).
+- Requests with a non-local `Origin` header are rejected.
+- Rate limit: 600 requests per minute (all callers are `127.0.0.1`, so effectively global).
+- `/eval` and `/navigate` also work while the app is in the background (setting
+  *Allow background debug*, default ON). Turn it off to require the app on screen.
+- File endpoints are confined to the app's external files directory; upload names are reduced
+  to a bare file name.
 - Never log the full key.
 
 ---

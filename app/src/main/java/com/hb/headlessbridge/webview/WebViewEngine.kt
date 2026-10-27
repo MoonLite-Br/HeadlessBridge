@@ -20,6 +20,7 @@ import android.content.Intent
 import com.hb.headlessbridge.util.AdBlocker
 import com.hb.headlessbridge.util.SecretKeyManager
 import org.json.JSONObject
+import org.json.JSONTokener
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -59,7 +60,8 @@ class WebViewEngine(
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun configureWebView() {
-        WebView.setWebContentsDebuggingEnabled(true)
+        // DevTools only in debug builds (release would expose the WebView to any adb client)
+        WebView.setWebContentsDebuggingEnabled(com.hb.headlessbridge.BuildConfig.DEBUG)
 
         val settings = webView.settings
         settings.javaScriptEnabled = true
@@ -92,11 +94,15 @@ class WebViewEngine(
         cookieManager.setAcceptCookie(true)
         cookieManager.setAcceptThirdPartyCookies(webView, true)
 
-        // UA: strip "WV" / "wv" to look like real Chromium
+        // UA: strip the WebView markers so it looks like real Chrome for Android.
+        //   "(Linux; Android 13; Pixel 7; wv)"  ->  "(Linux; Android 13; Pixel 7)"
+        //   "Version/4.0 Chrome/..."           ->  "Chrome/..."
+        // (Removing only the "wv" token leaves a malformed "; )" which is itself a bot signal.)
         val defaultUa = settings.userAgentString ?: ""
         val cleanedUa = defaultUa
-            .replace(Regex("\\bwv\\b", RegexOption.IGNORE_CASE), "")
-            .replace(" WV ", " ")
+            .replace(Regex(";\\s*wv\\)", RegexOption.IGNORE_CASE), ")")
+            .replace(Regex("\\s+Build/[^;)]*"), "")
+            .replace(Regex("\\bVersion/\\d+(\\.\\d+)*\\s*"), "")
             .replace(Regex("\\s+"), " ")
             .trim()
         settings.userAgentString = cleanedUa
@@ -233,23 +239,32 @@ class WebViewEngine(
             }
         }
         return try {
-            if (latch.await(timeoutMs, TimeUnit.MILLISECONDS)) {
-                // evaluateJavascript returns JSON-encoded string, unwrap it
-                val raw = result.get()
-                if (raw != null && raw.startsWith("\"") && raw.endsWith("\"")) {
-                    // Simple unescape
-                    raw.substring(1, raw.length - 1)
-                        .replace("\\\"", "\"")
-                        .replace("\\n", "\n")
-                        .replace("\\\\", "\\")
-                } else {
-                    raw
-                }
-            } else null
+            if (latch.await(timeoutMs, TimeUnit.MILLISECONDS)) decodeJsResult(result.get()) else null
         } catch (e: InterruptedException) {
             null
         }
     }
+
+    /**
+     * evaluateJavascript hands back a JSON value. Strings come quoted and escaped
+     * (WebView even writes the "less-than" sign as a unicode escape), so decode them with a
+     * real JSON parser. The old hand-rolled unescape corrupted /html output and anything
+     * containing unicode escapes.
+     */
+    private fun decodeJsResult(raw: String?): String? {
+        if (raw == null || raw == "null") return null
+        if (raw.length >= 2 && raw.startsWith("\"")) {
+            return try {
+                JSONTokener(raw).nextValue() as? String ?: raw
+            } catch (e: Exception) {
+                raw
+            }
+        }
+        return raw
+    }
+
+    /** Safe JS string literal (quotes, backslashes, newlines, </script>, U+2028 …). */
+    fun jsLiteral(s: String): String = JSONObject.quote(s)
 
     // ───────────────────── Cookies ─────────────────────
 
@@ -304,7 +319,7 @@ class WebViewEngine(
     fun clickSelector(selector: String): Boolean {
         val js = """
             (function(){
-                var el = document.querySelector('$selector');
+                var el = document.querySelector(${jsLiteral(selector)});
                 if(el){ el.click(); return true; }
                 return false;
             })()
@@ -330,19 +345,30 @@ class WebViewEngine(
         }
     }
 
-    fun typeText(selector: String, text: String): Boolean {
-        // Escape for JS string
-        val escaped = text
-            .replace("\\", "\\\\")
-            .replace("'", "\\'")
-            .replace("\n", "\\n")
-            .replace("\r", "")
+    /**
+     * Set (or append to) the value of an input / textarea / contenteditable.
+     * Uses the native value setter so React/Vue controlled inputs notice the change.
+     */
+    fun typeText(selector: String, text: String, clear: Boolean = true, append: Boolean = false): Boolean {
+        val replaceExisting = clear && !append
         val js = """
             (function(){
-                var el = document.querySelector('$selector');
+                var el = document.querySelector(${jsLiteral(selector)});
                 if(!el) return false;
+                var text = ${jsLiteral(text)};
+                var replaceExisting = $replaceExisting;
+                var append = $append;
                 el.focus();
-                el.value = '$escaped';
+                if(el.isContentEditable){
+                    if(replaceExisting){ document.execCommand('selectAll', false, null); }
+                    document.execCommand('insertText', false, text);
+                    return true;
+                }
+                var proto = (el.tagName === 'TEXTAREA') ? window.HTMLTextAreaElement.prototype
+                                                         : window.HTMLInputElement.prototype;
+                var desc = Object.getOwnPropertyDescriptor(proto, 'value');
+                var next = (append ? (el.value || '') : '') + text;
+                if(desc && desc.set){ desc.set.call(el, next); } else { el.value = next; }
                 el.dispatchEvent(new Event('input', {bubbles:true}));
                 el.dispatchEvent(new Event('change', {bubbles:true}));
                 return true;
@@ -368,6 +394,14 @@ class WebViewEngine(
         val latch = CountDownLatch(1)
         mainHandler.post {
             try {
+                // A hidden / never-laid-out WebView has size 0 → screenshot would be 1x1.
+                if (webView.width == 0 || webView.height == 0) {
+                    webView.measure(
+                        View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY)
+                    )
+                    webView.layout(0, 0, 1080, 1920)
+                }
                 val bitmap = Bitmap.createBitmap(
                     webView.width.coerceAtLeast(1),
                     webView.height.coerceAtLeast(1),
@@ -518,6 +552,8 @@ class WebViewEngine(
         if (isDestroyed.compareAndSet(false, true)) {
             mainHandler.post {
                 try {
+                    // destroy() while still attached to a window is an error + leaks the Activity
+                    (webView.parent as? android.view.ViewGroup)?.removeView(webView)
                     webView.stopLoading()
                     webView.loadUrl("about:blank")
                     webView.clearHistory()

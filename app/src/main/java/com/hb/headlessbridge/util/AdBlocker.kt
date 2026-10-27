@@ -1,18 +1,21 @@
 package com.hb.headlessbridge.util
 
+import android.net.Uri
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import java.io.ByteArrayInputStream
-import java.util.regex.Pattern
 
 /**
- * Simple but effective ad / tracker blocker using host lists + regex.
- * Used inside WebViewClient.shouldInterceptRequest.
+ * Host-based ad / tracker blocker used inside WebViewClient.shouldInterceptRequest.
+ *
+ * Matching is done on the request HOST (exact or sub-domain), not with `contains` / regex over
+ * the whole URL. The old version blocked any URL containing "adjust.com", "/ad/", "/banner/",
+ * "/pixel/" … which broke ordinary pages, and it also blocked main-frame navigations.
  */
 object AdBlocker {
 
-    private val blockedHosts = setOf(
-        // Common ad / tracker domains
+    /** Registrable domains: the domain itself and every sub-domain is blocked. */
+    private val blockedDomains = setOf(
         "doubleclick.net", "googleadservices.com", "googlesyndication.com",
         "adservice.google.com", "pagead2.googlesyndication.com",
         "adnxs.com", "adsrvr.org", "advertising.com", "adform.net",
@@ -21,55 +24,54 @@ object AdBlocker {
         "scorecardresearch.com", "quantserve.com", "moatads.com",
         "pubmatic.com", "rubiconproject.com", "openx.net",
         "smartadserver.com", "yieldmo.com", "casalemedia.com",
-        "facebook.com/tr", "connect.facebook.net", "pixel.facebook.com",
+        "connect.facebook.net", "pixel.facebook.com",
         "analytics.twitter.com", "ads.twitter.com",
         "hotjar.com", "mouseflow.com", "fullstory.com",
-        "newrelic.com", "nr-data.net", "segment.io", "segment.com",
-        "mixpanel.com", "amplitude.com", "optimizely.com",
-        "branch.io", "appsflyer.com", "adjust.com",
+        "nr-data.net", "segment.io",
         "2mdn.net", "adsafeprotected.com", "serving-sys.com",
         "spotxchange.com", "teads.tv", "stickyadstv.com",
         "yieldlab.net", "adition.com", "adscale.de"
     )
 
-    private val blockedPatterns = listOf(
-        Pattern.compile(".*[./]ads?[./].*", Pattern.CASE_INSENSITIVE),
-        Pattern.compile(".*[./]banner[./].*", Pattern.CASE_INSENSITIVE),
-        Pattern.compile(".*[./]sponsor[./].*", Pattern.CASE_INSENSITIVE),
-        Pattern.compile(".*[./]tracker[./].*", Pattern.CASE_INSENSITIVE),
-        Pattern.compile(".*[./]pixel[./].*", Pattern.CASE_INSENSITIVE),
-        Pattern.compile(".*[./]beacon[./].*", Pattern.CASE_INSENSITIVE),
-        Pattern.compile(".*doubleclick.*", Pattern.CASE_INSENSITIVE),
-        Pattern.compile(".*googlesyndication.*", Pattern.CASE_INSENSITIVE),
-        Pattern.compile(".*pagead.*", Pattern.CASE_INSENSITIVE),
-        Pattern.compile(".*adservice.*", Pattern.CASE_INSENSITIVE)
+    /** Specific tracker URL prefixes on otherwise legitimate hosts. */
+    private val blockedUrlPrefixes = listOf(
+        "https://www.facebook.com/tr",
+        "http://www.facebook.com/tr"
     )
-
-    private val emptyResponse: WebResourceResponse by lazy {
-        WebResourceResponse(
-            "text/plain",
-            "utf-8",
-            ByteArrayInputStream(ByteArray(0))
-        )
-    }
 
     fun shouldBlock(url: String?): Boolean {
         if (url.isNullOrBlank()) return false
         val lower = url.lowercase()
-        // Host check
-        for (host in blockedHosts) {
-            if (lower.contains(host)) return true
+        for (prefix in blockedUrlPrefixes) {
+            if (lower.startsWith(prefix)) return true
         }
-        // Pattern check
-        for (p in blockedPatterns) {
-            if (p.matcher(lower).matches()) return true
+        val host: String = try {
+            Uri.parse(lower).host ?: return false
+        } catch (_: Exception) {
+            return false
+        }
+        for (domain in blockedDomains) {
+            if (host == domain || host.endsWith(".$domain")) return true
         }
         return false
     }
 
     fun intercept(request: WebResourceRequest?): WebResourceResponse? {
         if (request == null) return null
+        // Never break the page the caller explicitly navigated to.
+        if (request.isForMainFrame) return null
         val url = request.url?.toString() ?: return null
-        return if (shouldBlock(url)) emptyResponse else null
+        return if (shouldBlock(url)) blockedResponse() else null
     }
+
+    /** Fresh response per call – a WebResourceResponse wraps a one-shot InputStream. */
+    private fun blockedResponse(): WebResourceResponse =
+        WebResourceResponse(
+            "text/plain",
+            "utf-8",
+            403,
+            "Blocked",
+            emptyMap(),
+            ByteArrayInputStream(ByteArray(0))
+        )
 }
