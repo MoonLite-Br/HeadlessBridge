@@ -149,7 +149,7 @@ class BridgeServerService : Service(), BridgeHttpServer.HeadlessController {
         return NotificationCompat.Builder(this, getString(R.string.notification_channel_id))
             .setContentTitle(getString(R.string.notification_title))
             .setContentText(getString(R.string.notification_text))
-            .setSmallIcon(R.drawable.ic_settings)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(openPending)
             .addAction(0, getString(R.string.stop_service), stopPending)
             .setOngoing(true)
@@ -211,7 +211,28 @@ class BridgeServerService : Service(), BridgeHttpServer.HeadlessController {
         stopSelf()
     }
 
+    /**
+     * User swiped app from recents → restart FGS so bridge stays alive.
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        Log.i(TAG, "onTaskRemoved – restarting service")
+        val restart = Intent(applicationContext, BridgeServerService::class.java).apply {
+            action = ACTION_START
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                applicationContext.startForegroundService(restart)
+            } else {
+                applicationContext.startService(restart)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "restart after task removed failed: ${e.message}")
+        }
+    }
+
     override fun onDestroy() {
+
         stopServer()
         wakeLock?.let {
             if (it.isHeld) it.release()

@@ -21,7 +21,7 @@ class HeadlessBridgeApp : Application() {
         instance = this
         createNotificationChannel()
         // Ensure secret key exists early
-        SecretKeyManager.getOrCreateKey(this, forceRotate = true) // invalidate previous process token
+        SecretKeyManager.getOrCreateKey(this) // persistent token — only rotate on Reset or 24h TTL
         CacheCleanupWorker.schedule(this)
         Log.i(TAG, "Application started")
     }

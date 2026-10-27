@@ -38,6 +38,12 @@
         tools:targetApi="34">
 
         <activity
+            android:name=".SetupGuideActivity"
+            android:exported="false"
+            android:label="Setup Guide"
+            android:theme="@style/Theme.HeadlessBridge" />
+
+        <activity
             android:name=".DeveloperActivity"
             android:exported="false"
             android:label="Developer / ADB"

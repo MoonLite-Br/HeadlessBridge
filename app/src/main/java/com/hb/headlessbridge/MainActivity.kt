@@ -108,6 +108,11 @@ class MainActivity : AppCompatActivity() {
         // Update status text
         val port = SecretKeyManager.getPort(this)
         tvHeadlessStatus.text = "Bridge · $port"
+
+        // First-run OEM keep-alive guide
+        if (SetupGuideActivity.shouldShow(this)) {
+            startActivity(Intent(this, SetupGuideActivity::class.java))
+        }
     }
 
     private fun applyHeadlessUi(on: Boolean) {

@@ -141,7 +141,7 @@ class BridgeHttpServer(
     }
 
     private fun isAuthorized(session: IHTTPSession, rawBody: String): Boolean {
-        // Origin check – block DNS rebinding (browser requests from other origins)
+        // Origin check – block DNS rebinding
         val origin = session.headers["origin"] ?: session.headers["Origin"]
         if (origin != null) {
             val okOrigin = origin == "null" ||
@@ -154,19 +154,48 @@ class BridgeHttpServer(
                 return false
             }
         }
+
         val expected = SecretKeyManager.getKey(context)
-        // Authorization: Bearer <token>
-        val auth = session.headers["authorization"] ?: session.headers["Authorization"]
+        // NanoHTTPD lowercases header names → always use lowercase key
+        val auth = session.headers["authorization"]
+        var provided: String? = null
         if (auth != null) {
-            val token = auth.removePrefix("Bearer").removePrefix("bearer").trim()
-            if (token == expected) return true
+            // "Bearer <token>" or "bearer <token>"
+            provided = auth.trim()
+                .removePrefix("Bearer")
+                .removePrefix("bearer")
+                .trim()
         }
-        // Legacy fallback (still accept old header during migration)
-        val headerKey = session.headers["x-auth-key"] ?: session.headers["X-Auth-Key"]
-        if (headerKey != null && headerKey == expected) return true
-        val queryKey = session.parameters["key"]?.firstOrNull()
-        if (queryKey != null && queryKey == expected) return true
-        return false
+        if (provided.isNullOrBlank()) {
+            provided = session.headers["x-auth-key"]?.trim()
+        }
+        if (provided.isNullOrBlank()) {
+            provided = session.parameters["key"]?.firstOrNull()?.trim()
+        }
+
+        if (provided.isNullOrBlank()) {
+            if (com.hb.headlessbridge.BuildConfig.DEBUG) {
+                Log.w("BridgeAuth", "No token in request. expected=${SecretKeyManager.maskedKey(expected)}")
+            }
+            return false
+        }
+
+        val ok = constantTimeEquals(provided, expected)
+        if (com.hb.headlessbridge.BuildConfig.DEBUG) {
+            Log.d(
+                "BridgeAuth",
+                "auth ok=$ok recv_len=${provided.length} exp_len=${expected.length} " +
+                    "recv=${SecretKeyManager.maskedKey(provided)} exp=${SecretKeyManager.maskedKey(expected)}"
+            )
+        }
+        return ok
+    }
+
+    /** Constant-time compare to avoid timing attacks. */
+    private fun constantTimeEquals(a: String, b: String): Boolean {
+        val ba = a.toByteArray(Charsets.UTF_8)
+        val bb = b.toByteArray(Charsets.UTF_8)
+        return java.security.MessageDigest.isEqual(ba, bb)
     }
 
     /** True if Activity is visible OR user enabled ALLOW_BACKGROUND_DEBUG. */

@@ -15,6 +15,7 @@ import android.webkit.*
 import android.widget.Toast
 import android.net.Uri
 import android.content.pm.PackageManager
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import com.hb.headlessbridge.util.AdBlocker
 import com.hb.headlessbridge.util.SecretKeyManager
@@ -394,102 +395,101 @@ class WebViewEngine(
 
 
     /**
-     * Handle non-http(s) schemes that cause net::ERR_UNKNOWN_URL_SCHEME:
-     * intent://, market://, upi://, whatsapp://, tg://, zalo://, tel:, mailto:, etc.
-     * @return true if we consumed the URL (WebView should NOT load it)
+     * Chặn scheme lạ → mở app tương ứng, tránh ERR_UNKNOWN_URL_SCHEME / màn trắng.
+     * @return true = WebView không load URL này.
      */
     private fun handleSpecialScheme(url: String): Boolean {
         val lower = url.lowercase()
-        val specialPrefixes = listOf(
-            "intent:", "market:", "upi:", "whatsapp:", "tg:", "telegram:",
-            "zalo:", "viber:", "line:", "fb:", "facebook:", "tel:", "mailto:",
-            "sms:", "geo:", "maps:", "spotify:", "youtube:"
-        )
-        val isSpecial = specialPrefixes.any { lower.startsWith(it) }
-        if (!isSpecial) return false  // let WebView handle http/https/file/etc.
+        // http(s) / about / data / file / blob → để WebView xử lý
+        if (lower.startsWith("http://") || lower.startsWith("https://") ||
+            lower.startsWith("about:") || lower.startsWith("data:") ||
+            lower.startsWith("file:") || lower.startsWith("blob:") ||
+            lower.startsWith("javascript:")
+        ) {
+            return false
+        }
 
-        Log.i(TAG, "Special scheme URL: ${url.take(120)}")
+        Log.i(TAG, "Special scheme: ${url.take(160)}")
         return try {
             if (lower.startsWith("intent:")) {
                 handleIntentScheme(url)
             } else {
-                // market://, upi://, whatsapp:// ...
+                // tg://, whatsapp://, market://, upi://, tel:, mailto:, zalo://...
                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    // Không dùng createChooser → ưu tiên app mặc định / app gốc
                 }
-                if (intent.resolveActivity(context.packageManager) != null) {
+                val resolved = intent.resolveActivity(context.packageManager)
+                if (resolved != null) {
                     context.startActivity(intent)
-                    true
                 } else {
-                    Log.w(TAG, "No app can handle: $url")
-                    Toast.makeText(context, "Không tìm thấy ứng dụng để mở liên kết này", Toast.LENGTH_SHORT).show()
-                    true  // still consume to avoid ERR_UNKNOWN_URL_SCHEME
+                    Log.w(TAG, "No app for scheme: $url")
+                    Toast.makeText(context, "Không tìm thấy ứng dụng để mở liên kết", Toast.LENGTH_SHORT).show()
                 }
+                true
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "handleSpecialScheme failed: ${e.message}", e)
-            Toast.makeText(context, "Không mở được liên kết: ${e.message}", Toast.LENGTH_SHORT).show()
+        } catch (e: ActivityNotFoundException) {
+            Log.e(TAG, "ActivityNotFoundException: ${e.message}")
+            Toast.makeText(context, "Không tìm thấy ứng dụng để mở liên kết", Toast.LENGTH_SHORT).show()
             true
+        } catch (e: Exception) {
+            Log.e(TAG, "handleSpecialScheme error: ${e.message}", e)
+            true // vẫn consume để WebView không hiện ERR_UNKNOWN_URL_SCHEME
         }
     }
 
-    /** Parse intent:// URI and launch target app with safe fallbacks. */
+    /** intent://...#Intent;scheme=https;package=...;end */
     private fun handleIntentScheme(url: String): Boolean {
         return try {
             val intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            // Prefer explicit package if present
+            // package= trong intent → ép mở đúng app, tránh dialog chọn
+            // (parseUri đã set intent.`package` nếu có)
             val pm = context.packageManager
             if (intent.resolveActivity(pm) != null) {
                 context.startActivity(intent)
-                Log.i(TAG, "Launched intent target: ${intent.`package` ?: intent.component}")
+                Log.i(TAG, "Opened intent package=${intent.`package`}")
                 return true
             }
-            // Fallback 1: browser_fallback_url extra (common in Chrome intent links)
+            // Fallback: browser_fallback_url
             val fallback = intent.getStringExtra("browser_fallback_url")
             if (!fallback.isNullOrBlank()) {
-                Log.i(TAG, "Using browser_fallback_url: $fallback")
+                Log.i(TAG, "browser_fallback_url → $fallback")
                 mainHandler.post { webView.loadUrl(fallback) }
                 return true
             }
-            // Fallback 2: try https scheme from Intent data / extras
-            val fallbackScheme = intent.scheme
-            if (fallbackScheme == null || fallbackScheme == "https" || fallbackScheme == "http") {
-                // already tried resolve
-            }
-            // Fallback 3: open in default browser if we can extract a web URL
+            // Fallback: scheme=https trong #Intent → load trong WebView
             val webUrl = extractHttpsFromIntent(url)
             if (webUrl != null) {
-                Log.i(TAG, "Extracted https fallback: $webUrl")
+                Log.i(TAG, "https from intent → $webUrl")
                 mainHandler.post { webView.loadUrl(webUrl) }
                 return true
             }
-            Toast.makeText(
-                context,
-                "Không có ứng dụng phù hợp. Cài app đích hoặc mở bằng trình duyệt.",
-                Toast.LENGTH_LONG
-            ).show()
+            Toast.makeText(context, "Không có app phù hợp để mở liên kết", Toast.LENGTH_LONG).show()
+            true
+        } catch (e: ActivityNotFoundException) {
+            Log.e(TAG, "ActivityNotFoundException intent: ${e.message}")
+            val webUrl = extractHttpsFromIntent(url)
+            if (webUrl != null) {
+                mainHandler.post { webView.loadUrl(webUrl) }
+            } else {
+                Toast.makeText(context, "Không tìm thấy ứng dụng đích", Toast.LENGTH_SHORT).show()
+            }
             true
         } catch (e: Exception) {
             Log.e(TAG, "Intent.parseUri failed: ${e.message}", e)
-            Toast.makeText(context, "Lỗi mở intent: ${e.message}", Toast.LENGTH_SHORT).show()
             true
         }
     }
 
-    /** Try to pull an https URL out of an intent:// string for fallback. */
     private fun extractHttpsFromIntent(intentUrl: String): String? {
-        // Common pattern: intent://host/path#Intent;scheme=https;...
-        val schemeMatch = Regex("scheme=([^;]+)").find(intentUrl)
-        val hostMatch = Regex("intent://([^#]+)").find(intentUrl)
-        if (schemeMatch != null && hostMatch != null) {
-            val scheme = schemeMatch.groupValues[1]
-            if (scheme == "https" || scheme == "http") {
-                return "$scheme://${hostMatch.groupValues[1]}"
-            }
+        val schemeMatch = Regex("scheme=([^;]+)").find(intentUrl) ?: return null
+        val hostMatch = Regex("intent://([^#]+)").find(intentUrl) ?: return null
+        val scheme = schemeMatch.groupValues[1]
+        if (scheme == "https" || scheme == "http") {
+            return "$scheme://${hostMatch.groupValues[1]}"
         }
-        // browser_fallback_url already handled above
         return null
     }
 
