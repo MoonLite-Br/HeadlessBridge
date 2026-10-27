@@ -495,6 +495,25 @@ class WebViewEngine(
 
     // ───────────────────── Lifecycle ─────────────────────
 
+    /** True after destroy() was called. */
+    fun isDestroyed(): Boolean = isDestroyed.get()
+
+    /**
+     * True if engine can still drive the WebView.
+     * Activity-hosted WebViews die with the view hierarchy without calling destroy().
+     */
+    fun isUsable(): Boolean {
+        if (isDestroyed.get()) return false
+        return try {
+            // Touch WebView on this thread only if already main; otherwise assume ok
+            // and let callers run ops on main. A destroyed WebView throws on getSettings().
+            webView.settings != null
+        } catch (e: Exception) {
+            Log.w(TAG, "WebView unusable: ${e.message}")
+            false
+        }
+    }
+
     fun destroy() {
         if (isDestroyed.compareAndSet(false, true)) {
             mainHandler.post {

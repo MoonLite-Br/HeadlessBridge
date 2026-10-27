@@ -20,6 +20,12 @@ import com.hb.headlessbridge.server.BridgeHttpServer
 import com.hb.headlessbridge.util.SecretKeyManager
 import com.hb.headlessbridge.webview.WebViewEngine
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.CountDownLatch
+import android.webkit.WebView
+import android.os.Looper
+import android.os.Handler
 
 /**
  * Foreground Service that hosts the HTTP bridge server and keeps the process alive.
@@ -34,6 +40,7 @@ class BridgeServerService : Service(), BridgeHttpServer.HeadlessController {
         const val NOTIFICATION_ID = 1001
 
         private val engineRef = AtomicReference<WebViewEngine?>(null)
+        private val recreateCount = AtomicInteger(0)
         private val headlessState = AtomicReference(false)
         private val serviceInstance = AtomicReference<BridgeServerService?>(null)
 
@@ -79,6 +86,10 @@ class BridgeServerService : Service(), BridgeHttpServer.HeadlessController {
         serviceInstance.set(this)
         Log.i(TAG, "Service created")
         acquireWakeLock()
+        // Warm WebView on main so first HTTP call is not cold-start
+        Handler(Looper.getMainLooper()).post {
+            ensureEngine()
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -106,6 +117,75 @@ class BridgeServerService : Service(), BridgeHttpServer.HeadlessController {
         return START_STICKY
     }
 
+
+    /**
+     * Trả về WebViewEngine còn sống. Nếu null/destroyed → tạo WebView mới trên main thread.
+     * Không phụ thuộc MainActivity. Gọi từ HTTP worker thread (không gọi trên main — tránh ANR).
+     *
+     * Android: WebView PHẢI tạo trên UI thread (Looper.getMainLooper()).
+     * Dùng applicationContext vì Service không có window token; headless automation không cần attach view.
+     */
+    fun ensureEngine(): WebViewEngine? {
+        val current = engineRef.get()
+        if (current != null && !current.isDestroyed() && current.isUsable()) {
+            return current
+        }
+        // Không await nếu đang ở main thread — tránh deadlock
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            return createEngineOnMain()
+        }
+        var created: WebViewEngine? = null
+        val latch = CountDownLatch(1)
+        Handler(Looper.getMainLooper()).post {
+            try {
+                created = createEngineOnMain()
+            } finally {
+                latch.countDown()
+            }
+        }
+        val ok = latch.await(5, TimeUnit.SECONDS)
+        if (!ok) {
+            Log.e(TAG, "ensureEngine: timeout 5s waiting for main thread")
+        }
+        return created ?: engineRef.get()
+    }
+
+    private fun createEngineOnMain(): WebViewEngine? {
+        // Must be called on main thread
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            Log.e(TAG, "createEngineOnMain called off main thread")
+            return null
+        }
+        return try {
+            // Dispose previous if any
+            engineRef.get()?.let { old ->
+                try {
+                    if (!old.isDestroyed()) old.destroy()
+                } catch (_: Exception) {}
+            }
+            val webView = WebView(applicationContext)
+            // Kích thước tối thiểu — một số API (screenshot/draw) cần non-zero size
+            webView.layout(0, 0, 1080, 1920)
+            webView.measure(
+                android.view.View.MeasureSpec.makeMeasureSpec(1080, android.view.View.MeasureSpec.EXACTLY),
+                android.view.View.MeasureSpec.makeMeasureSpec(1920, android.view.View.MeasureSpec.EXACTLY)
+            )
+            webView.layout(0, 0, 1080, 1920)
+            val engine = WebViewEngine(applicationContext, webView)
+            engine.antiPopupEnabled = SecretKeyManager.isAntiPopup(this)
+            engine.destroyAdsEnabled = SecretKeyManager.isDestroyAds(this)
+            engineRef.set(engine)
+            val n = recreateCount.incrementAndGet()
+            Log.i(TAG, "WebViewEngine created/recreated (count=$n)")
+            // Load blank so engine is warm
+            webView.loadUrl("about:blank")
+            engine
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create WebViewEngine", e)
+            null
+        }
+    }
+
     private fun startServer() {
         if (server != null) return
         val port = SecretKeyManager.getPort(this)
@@ -113,7 +193,7 @@ class BridgeServerService : Service(), BridgeHttpServer.HeadlessController {
             server = BridgeHttpServer(
                 context = this,
                 port = port,
-                engineProvider = { engineRef.get() },
+                engineProvider = { ensureEngine() },
                 headlessController = this
             )
             server?.start(5000, false)
@@ -194,6 +274,8 @@ class BridgeServerService : Service(), BridgeHttpServer.HeadlessController {
         val scale = bat?.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, 100) ?: 100
         val batteryPct = if (level >= 0) (level * 100 / scale) else -1
 
+        val eng = engineRef.get()
+        val ready = eng != null && !eng.isDestroyed() && eng.isUsable()
         return mapOf(
             "headless" to headlessState.get(),
             "foreground" to true,
@@ -201,7 +283,9 @@ class BridgeServerService : Service(), BridgeHttpServer.HeadlessController {
             "battery" to batteryPct,
             "ram_avail_mb" to (memInfo.availMem / (1024 * 1024)),
             "ram_total_mb" to (memInfo.totalMem / (1024 * 1024)),
-            "low_memory" to memInfo.lowMemory
+            "low_memory" to memInfo.lowMemory,
+            "webview_ready" to ready,
+            "webview_recreate_count" to recreateCount.get()
         )
     }
 
