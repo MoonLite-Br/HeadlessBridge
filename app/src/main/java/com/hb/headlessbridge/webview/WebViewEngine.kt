@@ -49,6 +49,7 @@ class WebViewEngine(
     private val lastTitle = AtomicReference("")
     private val lastUrl = AtomicReference("")
     private val isDestroyed = AtomicBoolean(false)
+    @Volatile private var pendingUrl: String = ""
 
     var antiPopupEnabled: Boolean = true
     var destroyAdsEnabled: Boolean = true
@@ -126,11 +127,24 @@ class WebViewEngine(
                 lastUrl.set(url ?: "")
             }
 
+            // API 26+. Without this, a renderer crash (low memory) KILLS THE WHOLE APP.
+            // Returning true keeps the process alive; the service then builds a fresh engine.
+            override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                rendererGone = true
+                val crashed = detail?.didCrash() == true
+                Log.e(TAG, "Renderer gone (crashed=$crashed) – engine will be recreated")
+                com.hb.headlessbridge.server.BridgeHttpServer.log(
+                    "WebView renderer gone (" + (if (crashed) "crash" else "killed by system / low memory") + ")"
+                )
+                return true
+            }
+
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 lastUrl.set(url ?: "")
                 lastTitle.set(view?.title ?: "")
-                pageFinishedLatch.get()?.countDown()
+                // An old about:blank / redirect finishing must not release a pending navigate().
+                if (url != "about:blank" || pendingUrl == "about:blank") pageFinishedLatch.get()?.countDown()
                 // Flush cookies periodically
                 CookieManager.getInstance().flush()
             }
@@ -211,8 +225,9 @@ class WebViewEngine(
     // ───────────────────── Navigation ─────────────────────
 
     fun navigate(url: String, timeoutMs: Long = DEFAULT_TIMEOUT_MS): Boolean {
-        if (isDestroyed.get()) return false
+        if (!isUsable()) return false
         val latch = CountDownLatch(1)
+        pendingUrl = url
         pageFinishedLatch.set(latch)
         mainHandler.post {
             webView.loadUrl(url)
@@ -532,21 +547,20 @@ class WebViewEngine(
     /** True after destroy() was called. */
     fun isDestroyed(): Boolean = isDestroyed.get()
 
+    /** Set when Chromium's renderer process died (OOM / low-memory killer / crash). */
+    @Volatile var rendererGone: Boolean = false
+        private set
+
     /**
      * True if engine can still drive the WebView.
-     * Activity-hosted WebViews die with the view hierarchy without calling destroy().
+     *
+     * MUST NOT touch the WebView: this is called from NanoHTTPD worker threads, and any WebView
+     * method off the UI thread throws. The old version did `webView.settings` here, the
+     * exception was swallowed as "unusable", and ensureEngine() then destroyed and rebuilt the
+     * WebView on EVERY HTTP request (webview_recreate_count: 23, page reset to about:blank,
+     * webview_ready=false). Liveness is tracked with flags instead.
      */
-    fun isUsable(): Boolean {
-        if (isDestroyed.get()) return false
-        return try {
-            // Touch WebView on this thread only if already main; otherwise assume ok
-            // and let callers run ops on main. A destroyed WebView throws on getSettings().
-            webView.settings != null
-        } catch (e: Exception) {
-            Log.w(TAG, "WebView unusable: ${e.message}")
-            false
-        }
-    }
+    fun isUsable(): Boolean = !isDestroyed.get() && !rendererGone
 
     fun destroy() {
         if (isDestroyed.compareAndSet(false, true)) {
@@ -561,6 +575,13 @@ class WebViewEngine(
                     webView.destroy()
                 } catch (_: Exception) {}
             }
+        }
+    }
+
+    /** Drop caches under memory pressure (called from Service.onTrimMemory). */
+    fun trimMemory() {
+        mainHandler.post {
+            try { webView.clearCache(false) } catch (_: Exception) {}
         }
     }
 

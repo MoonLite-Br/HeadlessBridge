@@ -2,17 +2,17 @@
 <resources>
     <string name="app_name">HeadlessBridge</string>
     <string name="notification_title">HeadlessBridge đang chạy</string>
-    <string name="notification_text">RAM boost · Bridge server active</string>
+    <string name="notification_text">Bridge server đang lắng nghe trên 127.0.0.1</string>
     <string name="notification_channel_id">headless_bridge_channel</string>
     <string name="notification_channel_name">Headless Bridge Service</string>
-    <string name="headless_label">headless</string>
-    <string name="headless_on">[on]</string>
-    <string name="copy_key">Copy secret key</string>
-    <string name="anti_popup">Anti-popup</string>
-    <string name="destroy_ads">Destroy Ads</string>
+    <string name="headless_label">Headless</string>
+    <string name="headless_on">Thoát headless</string>
+    <string name="copy_key">Sao chép key</string>
+    <string name="anti_popup">Chặn popup</string>
+    <string name="destroy_ads">Chặn quảng cáo</string>
     <string name="headless_mode">Headless</string>
-    <string name="wireless_debug">Wireless Debug</string>
     <string name="port_label">Port</string>
-    <string name="stop_service">Stop</string>
-    <string name="settings">Settings</string>
+    <string name="stop_service">Dừng</string>
+    <string name="settings">Cài đặt</string>
+    <string name="reload">Tải lại</string>
 </resources>

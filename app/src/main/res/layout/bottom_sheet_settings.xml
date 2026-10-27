@@ -1,366 +1,359 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:background="@color/settings_bg"
-    android:padding="20dp">
+    android:background="@drawable/bg_sheet"
+    android:fillViewport="false">
 
-    <View
-        android:layout_width="40dp"
-        android:layout_height="4dp"
-        android:layout_gravity="center_horizontal"
-        android:background="#555555"
-        android:layout_marginBottom="16dp" />
-
-    <TextView
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="HeadlessBridge Settings"
-        android:textColor="@color/white"
-        android:textSize="18sp"
-        android:textStyle="bold"
-        android:layout_marginBottom="16dp" />
+        android:orientation="vertical"
+        android:paddingBottom="24dp">
 
-    <!-- Copy Key -->
+        <View
+            android:layout_width="40dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="12dp"
+            android:background="@color/stroke" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingStart="20dp"
+            android:paddingTop="16dp"
+            android:paddingEnd="20dp"
+            android:text="@string/settings"
+            android:textColor="@color/text_primary"
+            android:textSize="20sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tv_ua_info"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:paddingStart="20dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="20dp"
+            android:text="UA"
+            android:textColor="@color/text_hint"
+            android:textSize="11sp" />
+
+    <TextView style="@style/SettingsSection" android:text="KẾT NỐI" />
+
     <LinearLayout
         android:id="@+id/row_copy_key"
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:background="?attr/selectableItemBackground"
-        android:paddingStart="4dp"
-        android:paddingEnd="4dp">
+        style="@style/SettingsRow">
 
-        <TextView
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="🔑  Copy secret key"
-            android:textColor="@color/white"
-            android:textSize="15sp" />
+            android:orientation="vertical">
+
+            <TextView
+                style="@style/SettingsTitle"
+                android:text="Sao chép secret key" />
+            <TextView
+                style="@style/SettingsSubtitle"
+                android:text="Dùng làm Authorization: Bearer KEY khi gọi API" />
+        </LinearLayout>
     </LinearLayout>
 
-    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider" />
+    <View style="@style/SettingsDivider" />
 
-    <!-- Anti-popup -->
     <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingStart="4dp"
-        android:paddingEnd="4dp">
+        style="@style/SettingsRow">
 
-        <TextView
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="🚫  Anti-popup"
-            android:textColor="@color/white"
-            android:textSize="15sp" />
+            android:orientation="vertical">
 
-        <com.google.android.material.switchmaterial.SwitchMaterial
-            android:id="@+id/switch_anti_popup"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
-    </LinearLayout>
+            <TextView
+                style="@style/SettingsTitle"
+                android:text="Port" />
 
-    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider" />
-
-    <!-- Destroy Ads -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingStart="4dp"
-        android:paddingEnd="4dp">
-
-        <TextView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="🧹  Destroy Ads"
-            android:textColor="@color/white"
-            android:textSize="15sp" />
-
-        <com.google.android.material.switchmaterial.SwitchMaterial
-            android:id="@+id/switch_destroy_ads"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
-    </LinearLayout>
-
-    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider" />
-
-    <!-- Headless -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingStart="4dp"
-        android:paddingEnd="4dp">
-
-        <TextView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="🌐  Headless Mode"
-            android:textColor="@color/white"
-            android:textSize="15sp" />
-
-        <com.google.android.material.switchmaterial.SwitchMaterial
-            android:id="@+id/switch_headless"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
-    </LinearLayout>
-
-    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider" />
-
-    <!-- Wireless Debug -->
-    <LinearLayout
-        android:id="@+id/row_wireless_debug"
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:background="?attr/selectableItemBackground"
-        android:paddingStart="4dp"
-        android:paddingEnd="4dp">
-
-        <TextView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="🐞  Wireless Debug"
-            android:textColor="@color/white"
-            android:textSize="15sp" />
-    </LinearLayout>
-
-    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider" />
-
-    <!-- Port -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingStart="4dp"
-        android:paddingEnd="4dp">
-
-        <TextView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="ℹ️  Port"
-            android:textColor="@color/white"
-            android:textSize="15sp" />
+            <TextView
+                style="@style/SettingsSubtitle"
+                android:text="1024–65535 · khởi động lại service để áp dụng" />
+        </LinearLayout>
 
         <EditText
             android:id="@+id/et_port"
-            android:layout_width="80dp"
-            android:layout_height="36dp"
-            android:inputType="number"
-            android:text="8765"
-            android:textColor="@color/white"
-            android:textSize="14sp"
-            android:gravity="center"
+            android:layout_width="88dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="12dp"
             android:background="@drawable/bg_edit_port"
-            android:padding="4dp" />
+            android:gravity="center"
+            android:importantForAutofill="no"
+            android:inputType="number"
+            android:maxLength="5"
+            android:padding="4dp"
+            android:text="8765"
+            android:textColor="@color/text_primary"
+            android:textSize="14sp" />
     </LinearLayout>
 
-    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider" />
+    <TextView style="@style/SettingsSection" android:text="CHẾ ĐỘ CHẠY" />
 
-    <!-- Force GC -->
     <LinearLayout
-        android:id="@+id/row_force_gc"
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:background="?attr/selectableItemBackground"
-        android:paddingStart="4dp"
-        android:paddingEnd="4dp">
+        style="@style/SettingsRow">
 
-        <TextView
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="♻️  Force GC / Free RAM"
-            android:textColor="@color/white"
-            android:textSize="15sp" />
+            android:orientation="vertical">
+
+            <TextView
+                style="@style/SettingsTitle"
+                android:text="Headless" />
+            <TextView
+                style="@style/SettingsSubtitle"
+                android:text="Ẩn giao diện trình duyệt, vẫn chạy bên dưới" />
+        </LinearLayout>
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/switch_headless"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp" />
     </LinearLayout>
 
-    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider" />
+    <View style="@style/SettingsDivider" />
 
-    <!-- Ignore Battery -->
     <LinearLayout
-        android:id="@+id/row_ignore_battery"
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:background="?attr/selectableItemBackground"
-        android:paddingStart="4dp"
-        android:paddingEnd="4dp">
+        style="@style/SettingsRow">
 
-        <TextView
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="🔋  Ignore Battery Optimization"
-            android:textColor="@color/white"
-            android:textSize="15sp" />
-    </LinearLayout>
+            android:orientation="vertical">
 
-
-    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider" />
-
-    <!-- Clear cache -->
-    <LinearLayout
-        android:id="@+id/row_clear_cache"
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:background="?attr/selectableItemBackground"
-        android:paddingStart="4dp"
-        android:paddingEnd="4dp">
-        <TextView
-            android:id="@+id/tv_cache_size"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="🧹  Dọn cache"
-            android:textColor="@color/white"
-            android:textSize="15sp" />
-    </LinearLayout>
-
-    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider" />
-
-    <!-- Background run -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingStart="4dp"
-        android:paddingEnd="4dp">
-        <TextView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="🌙  Chạy nền (FGS)"
-            android:textColor="@color/white"
-            android:textSize="15sp" />
+            <TextView
+                style="@style/SettingsTitle"
+                android:text="Chạy nền" />
+            <TextView
+                style="@style/SettingsSubtitle"
+                android:text="Giữ bridge sống bằng Foreground Service (tốn pin hơn)" />
+        </LinearLayout>
         <com.google.android.material.switchmaterial.SwitchMaterial
             android:id="@+id/switch_bg_run"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp" />
     </LinearLayout>
 
-    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider" />
+    <View style="@style/SettingsDivider" />
 
-    <!-- Allow background debug -->
     <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingStart="4dp"
-        android:paddingEnd="4dp">
-        <TextView
+        style="@style/SettingsRow">
+
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="🔓  ALLOW_BACKGROUND_DEBUG"
-            android:textColor="@color/white"
-            android:textSize="15sp" />
+            android:orientation="vertical">
+
+            <TextView
+                style="@style/SettingsTitle"
+                android:text="Cho phép /eval, /navigate khi app ở nền" />
+            <TextView
+                style="@style/SettingsSubtitle"
+                android:text="Tắt để bắt buộc mở app trên màn hình" />
+        </LinearLayout>
         <com.google.android.material.switchmaterial.SwitchMaterial
             android:id="@+id/switch_bg_debug"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp" />
     </LinearLayout>
 
-    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider" />
+    <View style="@style/SettingsDivider" />
 
-    <!-- Overlay -->
     <LinearLayout
-        android:id="@+id/row_overlay"
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:background="?attr/selectableItemBackground"
-        android:paddingStart="4dp"
-        android:paddingEnd="4dp">
-        <TextView
+        style="@style/SettingsRow">
+
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="📌  Overlay trạng thái"
-            android:textColor="@color/white"
-            android:textSize="15sp" />
+            android:orientation="vertical">
+
+            <TextView
+                style="@style/SettingsTitle"
+                android:text="Bong bóng trạng thái" />
+            <TextView
+                style="@style/SettingsSubtitle"
+                android:text="Hiện chấm nổi cho biết bridge đang chạy (cần quyền hiển thị trên ứng dụng khác)" />
+        </LinearLayout>
         <com.google.android.material.switchmaterial.SwitchMaterial
             android:id="@+id/switch_overlay"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp" />
     </LinearLayout>
 
-    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider" />
+    <TextView style="@style/SettingsSection" android:text="TRÌNH DUYỆT" />
 
-    <!-- Permissions -->
+    <LinearLayout
+        style="@style/SettingsRow">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                style="@style/SettingsTitle"
+                android:text="Chặn popup" />
+            <TextView
+                style="@style/SettingsSubtitle"
+                android:text="Chặn trang tự mở cửa sổ mới (window.open)" />
+        </LinearLayout>
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/switch_anti_popup"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp" />
+    </LinearLayout>
+
+    <View style="@style/SettingsDivider" />
+
+    <LinearLayout
+        style="@style/SettingsRow">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                style="@style/SettingsTitle"
+                android:text="Chặn quảng cáo và tracker" />
+            <TextView
+                style="@style/SettingsSubtitle"
+                android:text="Lọc theo tên miền, không chặn trang bạn đang mở" />
+        </LinearLayout>
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/switch_destroy_ads"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp" />
+    </LinearLayout>
+
+    <View style="@style/SettingsDivider" />
+
+    <LinearLayout
+        android:id="@+id/row_clear_cache"
+        style="@style/SettingsRow">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+            android:id="@+id/tv_cache_size"
+                style="@style/SettingsTitle"
+                android:text="Dọn cache" />
+            <TextView
+                style="@style/SettingsSubtitle"
+                android:text="Chỉ xoá cache, giữ nguyên cookie và đăng nhập" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <TextView style="@style/SettingsSection" android:text="HỆ THỐNG" />
+
+    <LinearLayout
+        android:id="@+id/row_ignore_battery"
+        style="@style/SettingsRow">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                style="@style/SettingsTitle"
+                android:text="Bỏ tối ưu hoá pin" />
+            <TextView
+                style="@style/SettingsSubtitle"
+                android:text="Giúp Android không dừng bridge khi màn hình tắt" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <View style="@style/SettingsDivider" />
+
+    <LinearLayout
+        android:id="@+id/row_setup_guide"
+        style="@style/SettingsRow">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                style="@style/SettingsTitle"
+                android:text="Hướng dẫn giữ app sống" />
+            <TextView
+                style="@style/SettingsSubtitle"
+                android:text="Cài đặt riêng cho Xiaomi, Oppo, Vivo, Samsung, Huawei…" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <View style="@style/SettingsDivider" />
+
     <LinearLayout
         android:id="@+id/row_permissions"
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:background="?attr/selectableItemBackground"
-        android:paddingStart="4dp"
-        android:paddingEnd="4dp">
-        <TextView
+        style="@style/SettingsRow">
+
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="🔐  Xin quyền Mic/Ảnh/Thông báo"
-            android:textColor="@color/white"
-            android:textSize="15sp" />
+            android:orientation="vertical">
+
+            <TextView
+                style="@style/SettingsTitle"
+                android:text="Cấp quyền" />
+            <TextView
+                style="@style/SettingsSubtitle"
+                android:text="Micro, ảnh và thông báo cho các trang web cần dùng" />
+        </LinearLayout>
     </LinearLayout>
 
-    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/divider" />
+    <View style="@style/SettingsDivider" />
 
-    <!-- Developer -->
     <LinearLayout
         android:id="@+id/row_developer"
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:background="?attr/selectableItemBackground"
-        android:paddingStart="4dp"
-        android:paddingEnd="4dp">
-        <TextView
+        style="@style/SettingsRow">
+
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="🛠  Developer / ADB"
-            android:textColor="@color/white"
-            android:textSize="15sp" />
+            android:orientation="vertical">
+
+            <TextView
+                style="@style/SettingsTitle"
+                android:text="ADB và DevTools" />
+            <TextView
+                style="@style/SettingsSubtitle"
+                android:text="Hướng dẫn kết nối gỡ lỗi (app không thể tự bật)" />
+        </LinearLayout>
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/tv_ua_info"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:text="UA: Chromium-like"
-        android:textColor="#888888"
-        android:textSize="11sp"
-        android:maxLines="2"
-        android:ellipsize="end" />
-
-</LinearLayout>
+    </LinearLayout>
+</androidx.core.widget.NestedScrollView>

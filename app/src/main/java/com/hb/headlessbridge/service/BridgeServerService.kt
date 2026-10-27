@@ -299,7 +299,8 @@ class BridgeServerService : Service(), BridgeHttpServer.HeadlessController {
             "ram_total_mb" to (memInfo.totalMem / (1024 * 1024)),
             "low_memory" to memInfo.lowMemory,
             "webview_ready" to ready,
-            "webview_recreate_count" to recreateCount.get()
+            "webview_recreate_count" to recreateCount.get(),
+            "webview_renderer_gone" to (eng?.rendererGone ?: false)
         )
     }
 
@@ -330,6 +331,14 @@ class BridgeServerService : Service(), BridgeHttpServer.HeadlessController {
             }
         } catch (e: Exception) {
             Log.e(TAG, "restart after task removed failed: ${e.message}")
+        }
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            Log.w(TAG, "onTrimMemory level=$level – trimming WebView cache")
+            engineRef.get()?.trimMemory()
         }
     }
 

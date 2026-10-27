@@ -28,7 +28,7 @@ class DeveloperActivity : AppCompatActivity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(48, 48, 48, 48)
-            setBackgroundColor(0xFF1E1E1E.toInt())
+            setBackgroundColor(0xFF101317.toInt())
         }
         scroll.addView(root)
         setContentView(scroll)
@@ -37,7 +37,7 @@ class DeveloperActivity : AppCompatActivity() {
             root.addView(TextView(this).apply {
                 text = title
                 textSize = 18f
-                setTextColor(0xFF1A73E8.toInt())
+                setTextColor(0xFF5B9DFF.toInt())
                 setPadding(0, 32, 0, 8)
             })
             root.addView(TextView(this).apply {
@@ -55,13 +55,20 @@ class DeveloperActivity : AppCompatActivity() {
             false
         }
         val ip = getWifiIp()
-        val port = 5555 // common wireless debug port placeholder
+        // "Wireless debugging" (Android 11+). Readable by apps, but only the user can toggle it.
+        val wifiAdbOn = try {
+            Settings.Global.getInt(contentResolver, "adb_wifi_enabled", 0) == 1
+        } catch (_: Exception) {
+            false
+        }
 
         section(
             "Trạng thái hiện tại",
-            "ADB (USB debugging): ${if (adbOn) "BẬT" else "TẮT"}\n" +
-                "IP Wi-Fi: ${ip ?: "không có (bật Wi-Fi)"}\n" +
-                "Lưu ý: Wireless Debugging port lấy trong Developer Options (thường 3xxxx)."
+            "Gỡ lỗi USB: ${if (adbOn) "BẬT" else "TẮT"}\n" +
+                "Gỡ lỗi không dây: ${if (wifiAdbOn) "BẬT" else "TẮT"}\n" +
+                "IP Wi-Fi: ${ip ?: "không có (bật Wi-Fi)"}\n\n" +
+                "HeadlessBridge không thể tự bật gỡ lỗi. Android chỉ cho phép bạn bật trong Tùy chọn nhà phát triển; " +
+                "ứng dụng chỉ hiển thị hướng dẫn và lệnh để bạn chạy trong Termux."
         )
 
         section(
@@ -109,7 +116,7 @@ class DeveloperActivity : AppCompatActivity() {
 
         section(
             "Chrome DevTools (WebView)",
-            "1. App đã bật WebView.setWebContentsDebuggingEnabled(true)\n" +
+            "1. Chỉ hoạt động với bản debug (bản release tắt DevTools)\n" +
                 "2. Trên PC mở Chrome → chrome://inspect\n" +
                 "3. Kết nối ADB xong sẽ thấy WebView của HeadlessBridge"
         )

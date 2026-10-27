@@ -26,7 +26,7 @@ class SetupGuideActivity : AppCompatActivity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(48, 48, 48, 48)
-            setBackgroundColor(0xFF1E1E1E.toInt())
+            setBackgroundColor(0xFF101317.toInt())
         }
         scroll.addView(root)
         setContentView(scroll)
@@ -58,7 +58,7 @@ class SetupGuideActivity : AppCompatActivity() {
         root.addView(TextView(this).apply {
             text = title
             textSize = 18f
-            setTextColor(0xFF8d89f7.toInt())
+            setTextColor(0xFF5B9DFF.toInt())
             setPadding(0, 0, 0, 12)
         })
         root.addView(TextView(this).apply {

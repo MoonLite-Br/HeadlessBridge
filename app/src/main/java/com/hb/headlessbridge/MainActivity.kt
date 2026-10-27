@@ -9,7 +9,10 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
+import android.content.res.ColorStateList
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
@@ -46,6 +49,19 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnSettings: ImageButton
     private lateinit var tvHeadlessToggle: TextView
     private lateinit var tvHeadlessStatus: TextView
+    private lateinit var btnHeadlessCopy: View
+    private lateinit var btnReload: ImageButton
+    private lateinit var statusDot: View
+    private lateinit var tvStatus: TextView
+    private lateinit var tvUrl: TextView
+
+    private val uiHandler = Handler(Looper.getMainLooper())
+    private val statusTicker = object : Runnable {
+        override fun run() {
+            refreshStatus()
+            uiHandler.postDelayed(this, 1000)
+        }
+    }
 
     private var engine: WebViewEngine? = null
     private var settingsDialog: BottomSheetDialog? = null
@@ -76,6 +92,11 @@ class MainActivity : AppCompatActivity() {
         btnSettings = findViewById(R.id.btn_settings)
         tvHeadlessToggle = findViewById(R.id.tv_headless_toggle)
         tvHeadlessStatus = findViewById(R.id.tv_headless_status)
+        btnHeadlessCopy = findViewById(R.id.btn_headless_copy)
+        btnReload = findViewById(R.id.btn_reload)
+        statusDot = findViewById(R.id.status_dot)
+        tvStatus = findViewById(R.id.tv_status)
+        tvUrl = findViewById(R.id.tv_url)
 
         engine = WebViewEngine(this, webView).also {
             it.antiPopupEnabled = SecretKeyManager.isAntiPopup(this)
@@ -87,6 +108,8 @@ class MainActivity : AppCompatActivity() {
         webView.loadUrl("https://www.google.com")
 
         btnSettings.setOnClickListener { showSettingsSheet() }
+        btnReload.setOnClickListener { webView.reload() }
+        btnHeadlessCopy.setOnClickListener { copyKeyToClipboard() }
         tvHeadlessToggle.setOnClickListener {
             setHeadlessMode(false)
         }
@@ -107,13 +130,35 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Update status text
-        val port = SecretKeyManager.getPort(this)
-        tvHeadlessStatus.text = "Bridge · $port"
+        refreshStatus()
 
         // First-run OEM keep-alive guide
         if (SetupGuideActivity.shouldShow(this)) {
             startActivity(Intent(this, SetupGuideActivity::class.java))
         }
+    }
+
+    /** Top bar + headless card. Runs on the main thread, so only touch cheap, non-blocking state. */
+    private fun refreshStatus() {
+        val running = BridgeServerService.isRunning()
+        val port = SecretKeyManager.getPort(this)
+        val color = getColor(if (running) R.color.status_ok else R.color.status_off)
+        statusDot.backgroundTintList = ColorStateList.valueOf(color)
+        tvStatus.text = if (running) "Bridge đang chạy · 127.0.0.1:$port" else "Bridge đã dừng"
+        // webView.url is safe on the main thread (engine.getCurrentUrl() may block on it).
+        tvUrl.text = webView.url?.takeIf { it.isNotBlank() } ?: "about:blank"
+        tvHeadlessStatus.text = if (running) "127.0.0.1:$port" else "Đã dừng"
+    }
+
+    private fun copyKeyToClipboard() {
+        val key = SecretKeyManager.getKey(this)
+        val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText("hb_token", key))
+        Toast.makeText(
+            this,
+            "Đã sao chép key (${SecretKeyManager.maskedKey(key)}). Dùng: Authorization: Bearer <key>",
+            Toast.LENGTH_LONG
+        ).show()
     }
 
     private fun applyHeadlessUi(on: Boolean) {
@@ -138,7 +183,7 @@ class MainActivity : AppCompatActivity() {
         if (on) {
             ensureBridgeService() // xin POST_NOTIFICATIONS rồi mới start FGS
         }
-        Toast.makeText(this, if (on) "Headless ON" else "Headless OFF", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, if (on) "Đã bật headless" else "Đã tắt headless", Toast.LENGTH_SHORT).show()
     }
 
     private fun showSettingsSheet() {
@@ -150,9 +195,8 @@ class MainActivity : AppCompatActivity() {
         val switchAntiPopup = view.findViewById<SwitchMaterial>(R.id.switch_anti_popup)
         val switchDestroyAds = view.findViewById<SwitchMaterial>(R.id.switch_destroy_ads)
         val switchHeadless = view.findViewById<SwitchMaterial>(R.id.switch_headless)
-        val rowWireless = view.findViewById<View>(R.id.row_wireless_debug)
+        val rowSetupGuide = view.findViewById<View>(R.id.row_setup_guide)
         val etPort = view.findViewById<EditText>(R.id.et_port)
-        val rowForceGc = view.findViewById<View>(R.id.row_force_gc)
         val rowIgnoreBattery = view.findViewById<View>(R.id.row_ignore_battery)
         val tvUa = view.findViewById<TextView>(R.id.tv_ua_info)
         val tvCache = view.findViewById<TextView>(R.id.tv_cache_size)
@@ -172,15 +216,10 @@ class MainActivity : AppCompatActivity() {
         switchOverlay.isChecked = SecretKeyManager.isOverlay(this) && OverlayService.canDraw(this)
         etPort.setText(SecretKeyManager.getPort(this).toString())
         val report = CacheCleaner.measure(this)
-        tvCache.text = "🧹  Dọn cache (${report.mb(report.totalBytes)} MB)"
-        tvUa.text = "UA: ${engine?.getUserAgent()?.take(60) ?: "…"}… | Token: ${SecretKeyManager.maskedKey(SecretKeyManager.getKey(this))}"
+        tvCache.text = "Dọn cache (${report.mb(report.totalBytes)} MB)"
+        tvUa.text = "Key ${SecretKeyManager.maskedKey(SecretKeyManager.getKey(this))} · ${engine?.getUserAgent()?.take(80) ?: ""}"
 
-        rowCopyKey.setOnClickListener {
-            val key = SecretKeyManager.getKey(this)
-            val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
-            cm.setPrimaryClip(ClipData.newPlainText("hb_token", key))
-            Toast.makeText(this, "Token copied (${SecretKeyManager.maskedKey(key)}) — dùng: Authorization: Bearer <token>", Toast.LENGTH_LONG).show()
-        }
+        rowCopyKey.setOnClickListener { copyKeyToClipboard() }
 
         switchAntiPopup.setOnCheckedChangeListener { _, isChecked ->
             SecretKeyManager.setAntiPopup(this, isChecked)
@@ -213,7 +252,7 @@ class MainActivity : AppCompatActivity() {
 
         switchBgDebug.setOnCheckedChangeListener { _, isChecked ->
             SecretKeyManager.setAllowBackgroundDebug(this, isChecked)
-            Toast.makeText(this, if (isChecked) " /eval & /navigate cho phép khi background" else "Chỉ foreground", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, if (isChecked) "/eval và /navigate chạy được khi app ở nền" else "Chỉ chạy khi app đang mở", Toast.LENGTH_SHORT).show()
         }
 
         switchOverlay.setOnCheckedChangeListener { _, isChecked ->
@@ -233,14 +272,14 @@ class MainActivity : AppCompatActivity() {
 
         rowClearCache.setOnClickListener {
             val after = CacheCleaner.clear(this, webView)
-            tvCache.text = "🧹  Dọn cache (${after.mb(after.totalBytes)} MB)"
+            tvCache.text = "Dọn cache (${after.mb(after.totalBytes)} MB)"
             Toast.makeText(this, "Đã dọn cache → ${after.mb(after.totalBytes)} MB", Toast.LENGTH_SHORT).show()
         }
 
         rowPermissions.setOnClickListener {
             permissionHelper.requestAll { result ->
                 val granted = result.values.count { it }
-                Toast.makeText(this, "Quyền: $granted/${result.size} granted", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Đã cấp $granted/${result.size} quyền", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -249,9 +288,9 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, DeveloperActivity::class.java))
         }
 
-        rowWireless.setOnClickListener {
+        rowSetupGuide.setOnClickListener {
             dialog.dismiss()
-            showWirelessDebugDialog()
+            startActivity(Intent(this, SetupGuideActivity::class.java))
         }
 
         etPort.setOnFocusChangeListener { _, hasFocus ->
@@ -259,16 +298,10 @@ class MainActivity : AppCompatActivity() {
                 val port = etPort.text.toString().toIntOrNull() ?: 8765
                 if (port in 1024..65535) {
                     SecretKeyManager.setPort(this, port)
-                    Toast.makeText(this, "Port saved. Restart service to apply.", Toast.LENGTH_SHORT).show()
-                    tvHeadlessStatus.text = "Bridge · $port"
+                    Toast.makeText(this, "Đã lưu port. Khởi động lại service để áp dụng.", Toast.LENGTH_SHORT).show()
+                    refreshStatus()
                 }
             }
-        }
-
-        rowForceGc.setOnClickListener {
-            System.gc()
-            Runtime.getRuntime().gc()
-            Toast.makeText(this, "GC requested", Toast.LENGTH_SHORT).show()
         }
 
         rowIgnoreBattery.setOnClickListener {
@@ -277,50 +310,6 @@ class MainActivity : AppCompatActivity() {
 
         settingsDialog = dialog
         dialog.show()
-    }
-
-    private fun showWirelessDebugDialog() {
-        val input = EditText(this).apply {
-            hint = "pairing code"
-            setPadding(40, 30, 40, 30)
-        }
-        val portInput = EditText(this).apply {
-            hint = "pair port (e.g. 37xxx)"
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            setPadding(40, 30, 40, 30)
-        }
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(40, 20, 40, 10)
-            addView(input)
-            addView(portInput)
-        }
-
-        AlertDialog.Builder(this)
-            .setTitle("Wireless Debugging")
-            .setMessage("1. Enable Wireless debugging in Developer options\n2. Tap 'Pair device with pairing code'\n3. Enter code + port below\n\nIf app has no shell permission, copy the adb command to Termux.")
-            .setView(container)
-            .setPositiveButton("Pair / Show command") { _, _ ->
-                val code = input.text.toString().trim()
-                val pairPort = portInput.text.toString().trim()
-                if (code.isBlank() || pairPort.isBlank()) {
-                    Toast.makeText(this, "Need both code and port", Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
-                }
-                // The app can't run adb itself (no adb binary / shell on a normal phone), and the
-                // old Runtime.exec("sh -c ...") with raw user text blocked the UI thread and was a
-                // command-injection hole. Validate and just hand the command to Termux.
-                if (pairPort.toIntOrNull() == null || !code.all { it.isLetterOrDigit() }) {
-                    Toast.makeText(this, "Code / port không hợp lệ", Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
-                }
-                val cmd = "adb pair 127.0.0.1:$pairPort $code"
-                val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
-                cm.setPrimaryClip(ClipData.newPlainText("adb_pair", cmd))
-                Toast.makeText(this, "Command copied – paste in Termux:\n$cmd", Toast.LENGTH_LONG).show()
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
     }
 
     private fun requestIgnoreBatteryOptimizations() {
@@ -337,7 +326,7 @@ class MainActivity : AppCompatActivity() {
                     startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
                 }
             } else {
-                Toast.makeText(this, "Already ignoring battery optimizations", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Đã bỏ tối ưu hoá pin rồi", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -368,6 +357,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        uiHandler.removeCallbacks(statusTicker)
+        uiHandler.post(statusTicker)
         isInForeground = true
         engine?.onResume()
         // Ensure service running only if user enabled background run
@@ -380,6 +371,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        uiHandler.removeCallbacks(statusTicker)
         isInForeground = false
         // WebView.onPause() freezes JS timers/rendering. While the bridge service is running
         // the page must keep working (Termux is in front, this app is "paused") – that was
