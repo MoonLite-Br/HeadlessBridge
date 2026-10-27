@@ -154,7 +154,7 @@ class BridgeServerService : Service(), BridgeHttpServer.HeadlessController {
             .addAction(0, getString(R.string.stop_service), stopPending)
             .setOngoing(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .build()
     }
 

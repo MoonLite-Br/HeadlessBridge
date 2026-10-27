@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.util.Log
 import android.view.View
 import android.webkit.WebView
 import android.widget.EditText
@@ -95,7 +96,7 @@ class MainActivity : AppCompatActivity() {
         applyHeadlessUi(isHeadless)
 
         // Start foreground service
-        BridgeServerService.start(this)
+        ensureBridgeService() // xin POST_NOTIFICATIONS rồi mới start FGS
 
         // Register receiver
         val filter = IntentFilter("com.hb.headlessbridge.HEADLESS_CHANGED")
@@ -137,7 +138,7 @@ class MainActivity : AppCompatActivity() {
         })
         // Ensure service is running when headless
         if (on) {
-            BridgeServerService.start(this)
+            ensureBridgeService() // xin POST_NOTIFICATIONS rồi mới start FGS
         }
         Toast.makeText(this, if (on) "Headless ON" else "Headless OFF", Toast.LENGTH_SHORT).show()
     }
@@ -201,7 +202,7 @@ class MainActivity : AppCompatActivity() {
                 AlertDialog.Builder(this)
                     .setTitle("Chạy nền")
                     .setMessage("Foreground Service sẽ giữ app sống và tốn pin. Chỉ bật khi cần automation liên tục.")
-                    .setPositiveButton("OK") { _, _ -> BridgeServerService.start(this) }
+                    .setPositiveButton("OK") { _, _ -> ensureBridgeService() }
                     .setNegativeButton("Huỷ") { _, _ ->
                         switchBgRun.isChecked = false
                         SecretKeyManager.setBackgroundRun(this, false)
@@ -352,14 +353,36 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+
+    /**
+     * Android 13+: xin POST_NOTIFICATIONS trước, rồi mới start FGS
+     * để notification hiện được. Sau khi granted → restart service.
+     */
+    private fun ensureBridgeService() {
+        if (!SecretKeyManager.isBackgroundRun(this)) return
+        if (Build.VERSION.SDK_INT >= 33 &&
+            !permissionHelper.has(android.Manifest.permission.POST_NOTIFICATIONS)
+        ) {
+            // Xin quyền trước — sau khi user trả lời mới start/restart FGS
+            permissionHelper.request(android.Manifest.permission.POST_NOTIFICATIONS) { result ->
+                val granted = result[android.Manifest.permission.POST_NOTIFICATIONS] == true
+                Log.i("MainActivity", "POST_NOTIFICATIONS granted=$granted → start FGS")
+                BridgeServerService.stop(this)
+                BridgeServerService.start(this)
+            }
+            return
+        }
+        if (!BridgeServerService.isRunning()) {
+            BridgeServerService.start(this)
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         isInForeground = true
         engine?.onResume()
         // Ensure service running only if user enabled background run
-        if (SecretKeyManager.isBackgroundRun(this) && !BridgeServerService.isRunning()) {
-            BridgeServerService.start(this)
-        }
+        ensureBridgeService()
         // Hide overlay if permission revoked
         if (SecretKeyManager.isOverlay(this) && !OverlayService.canDraw(this)) {
             OverlayService.hide(this)

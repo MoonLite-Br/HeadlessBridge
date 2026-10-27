@@ -28,15 +28,20 @@ class HeadlessBridgeApp : Application() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                getString(R.string.notification_channel_id),
-                getString(R.string.notification_channel_name),
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Keeps HeadlessBridge alive in background"
-                setShowBadge(false)
-            }
             val nm = getSystemService(NotificationManager::class.java)
+            val channelId = getString(R.string.notification_channel_id)
+            // Xóa channel cũ (IMPORTANCE_LOW) nếu có — Android không cho đổi importance tại chỗ
+            nm.deleteNotificationChannel(channelId)
+            val channel = NotificationChannel(
+                channelId,
+                getString(R.string.notification_channel_name),
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "HeadlessBridge foreground service"
+                setShowBadge(false)
+                enableVibration(false)
+                setSound(null, null)
+            }
             nm.createNotificationChannel(channel)
         }
     }
